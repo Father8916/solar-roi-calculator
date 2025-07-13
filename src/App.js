@@ -24,6 +24,15 @@ const SolarROICalculator = () => {
   const [results, setResults] = useState(null);
   const [showResults, setShowResults] = useState(false);
 
+  const [locationData, setLocationData] = useState({
+  isUSA: null,
+  detectedZip: null,
+  detectedState: null,
+  detectedCity: null
+});
+ const [locationChecked, setLocationChecked] = useState(false);
+ const [zipValidationStatus, setZipValidationStatus] = useState('');
+  
   // Solar irradiance data (kWh/m²/day)
   const solarIrradiance = {
     'high': 5.5, // Southwest US
@@ -48,15 +57,128 @@ const SolarROICalculator = () => {
     }));
   };
 
-  const validateStep1 = () => {
-    return formData.name.trim() && formData.email.trim() && formData.phone.trim() && 
-           formData.address.trim() && formData.zipCode.trim();
-  };
+  // Enhanced email validation for all valid emails
+const validateEmail = (email) => {
+  // Comprehensive email validation
+  const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+  
+  if (!emailRegex.test(email) || email.length < 5) {
+    return false;
+  }
+  
+  // Common email providers (free and business)
+  const validProviders = [
+    // Free email providers
+    'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com', 
+    'icloud.com', 'protonmail.com', 'zoho.com', 'yandex.com', 'mail.com',
+    
+    // ISP email providers
+    'comcast.net', 'verizon.net', 'att.net', 'charter.net', 'cox.net', 
+    'earthlink.net', 'sbcglobal.net', 'roadrunner.com', 'bellsouth.net',
+    
+    // Business domains (basic validation - any .com, .org, .net, etc.)
+  ];
+  
+  const domain = email.split('@')[1]?.toLowerCase();
+  
+  // Allow known providers OR any valid business domain
+  return domain && (
+    validProviders.includes(domain) || 
+    /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(domain)
+  );
+};
+
+// Basic US ZIP code format validation
+const validateUSZipCode = (zipCode) => {
+  return /^\d{5}$/.test(zipCode);
+};
+
+// Location detection function
+const detectLocationAndValidateZip = async () => {
+  try {
+    const locationResponse = await fetch('https://ipapi.co/json/');
+    const locationInfo = await locationResponse.json();
+    
+    setLocationData({
+      isUSA: locationInfo.country_code === 'US',
+      detectedZip: locationInfo.postal,
+      detectedState: locationInfo.region,
+      detectedCity: locationInfo.city
+    });
+    
+    // Auto-fill ZIP if they're in US and haven't entered one
+    if (locationInfo.country_code === 'US' && !formData.zipCode && locationInfo.postal) {
+      handleInputChange('zipCode', locationInfo.postal);
+    }
+    
+    setLocationChecked(true);
+  } catch (error) {
+    console.log('Location detection failed, proceeding anyway');
+    setLocationChecked(true);
+  }
+};
+
+// Real ZIP code validation against database
+const validateRealUSZipCode = async (zipCode) => {
+  if (!zipCode || zipCode.length !== 5) {
+    setZipValidationStatus('invalid-format');
+    return false;
+  }
+  
+  setZipValidationStatus('checking');
+  
+  try {
+    const response = await fetch(`https://api.zippopotam.us/us/${zipCode}`);
+    if (response.ok) {
+      const data = await response.json();
+      setZipValidationStatus(`valid - ${data.places[0]['place name']}, ${data.places[0]['state abbreviation']}`);
+      return true;
+    } else {
+      setZipValidationStatus('invalid-zip');
+      return false;
+    }
+  } catch (error) {
+    // If API fails, fall back to basic validation
+    const isBasicValid = /^\d{5}$/.test(zipCode);
+    setZipValidationStatus(isBasicValid ? 'valid-format' : 'invalid-format');
+    return isBasicValid;
+  }
+};
+
+// Updated Step 1 validation
+const validateStep1 = async () => {
+  const basicValidation = 
+    formData.name.trim().length >= 2 && 
+    validateEmail(formData.email) && 
+    formData.phone.trim().length >= 10 && 
+    formData.address.trim().length >= 5 && 
+    formData.zipCode.length === 5;
+
+  if (!basicValidation) return false;
+  
+  // Check if ZIP code is real
+  const isRealZip = await validateRealUSZipCode(formData.zipCode);
+  return isRealZip;
+};;
 
   const validateStep2 = () => {
     return formData.monthlyBill && formData.systemCost;
   };
 
+// Detect location when component loads
+useEffect(() => {
+  detectLocationAndValidateZip();
+}, []);
+
+// Validate ZIP code when it changes
+useEffect(() => {
+  if (formData.zipCode.length === 5) {
+    validateRealUSZipCode(formData.zipCode);
+  } else {
+    setZipValidationStatus('');
+  }
+}, [formData.zipCode]);
+  
   const sendWebhook = async (leadData) => {
     try {
       const webhookUrl = 'https://hook.us2.make.com/bthvgm9bsb6cjypl2j4fa6ma07b20eta';
@@ -220,12 +342,25 @@ const SolarROICalculator = () => {
     await sendWebhook(calculationResults);
   };
 
-  const handleNextStep = () => {
-    if (step === 1 && validateStep1()) {
-      setStep(2);
-    } else if (step === 2 && validateStep2()) {
-      calculateSolarROI();
-    }
+   const handleNextStep = async () => {
+   if (step === 1) {
+     // Show loading state
+     const button = document.querySelector('button[type="submit"]') || document.querySelector('button');
+     const originalText = button ? button.textContent : '';
+     if (button) button.textContent = 'Validating...';
+    
+     const isValid = await validateStep1();
+    
+     if (button) button.textContent = originalText;
+    
+     if (isValid) {
+       setStep(2);
+     } else {
+       alert('Please ensure all fields are valid:\n- Real email address\n- Valid US ZIP code\n- Complete information');
+     }
+   } else if (step === 2 && validateStep2()) {
+     calculateSolarROI();
+   }
   };
 
   const formatCurrency = (amount) => {
@@ -277,17 +412,25 @@ const SolarROICalculator = () => {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Email Address *
-                    </label>
-                    <input
-                      type="email"
-                      value={formData.email}
-                      onChange={(e) => handleInputChange('email', e.target.value)}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                      placeholder="your@email.com"
-                    />
-                  </div>
+                   <label className="block text-sm font-medium text-gray-700 mb-2">
+                     Email Address *
+                   </label>
+                   <input
+                    type="email"
+                     value={formData.email}
+                    onChange={(e) => handleInputChange('email', e.target.value)}
+                    className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent ${
+                    formData.email && !validateEmail(formData.email) ? 'border-red-500' : 'border-gray-300'
+                 }`}
+                    placeholder="your@email.com"
+                   />
+                   {formData.email && !validateEmail(formData.email) && (
+                   <p className="text-red-500 text-sm mt-1">Please enter a valid email address</p>
+                 )}
+                  {formData.email && validateEmail(formData.email) && (
+                 <p className="text-green-500 text-sm mt-1">✓ Valid email</p>
+                   )}
+                </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -316,18 +459,50 @@ const SolarROICalculator = () => {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      ZIP Code *
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.zipCode}
-                      onChange={(e) => handleInputChange('zipCode', e.target.value)}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                      placeholder="12345"
-                      maxLength="5"
-                    />
-                  </div>
+                   <label className="block text-sm font-medium text-gray-700 mb-2">
+                    ZIP Code *
+                    {locationData.isUSA && locationData.detectedZip && (
+                   <span className="text-green-600 text-sm ml-2">
+                   (Detected: {locationData.detectedZip})
+                   </span>
+                 )}
+                   </label>
+                   <input
+                   type="text"
+                   value={formData.zipCode}
+                   onChange={(e) => handleInputChange('zipCode', e.target.value.replace(/\D/g, '').slice(0, 5))}
+                   className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent ${
+                  zipValidationStatus === 'invalid-zip' || zipValidationStatus === 'invalid-format' ? 'border-red-500' : 
+                  zipValidationStatus.startsWith('valid') ? 'border-green-500' : 'border-gray-300'
+               }`}
+                  placeholder="12345"
+                  maxLength="5"
+                />
+  
+                {/* Location warning for non-US users */}
+               {locationData.isUSA === false && (
+             <p className="text-orange-500 text-sm mt-1">
+               ⚠️ This calculator is currently only available for US residents
+             </p>
+              )}
+  
+             {/* ZIP validation status */}
+             {zipValidationStatus === 'checking' && (
+             <p className="text-blue-500 text-sm mt-1">🔍 Validating ZIP code...</p>
+             )}
+             {zipValidationStatus === 'invalid-zip' && (
+             <p className="text-red-500 text-sm mt-1">❌ Invalid ZIP code - please enter a real US ZIP</p>
+             )}
+             {zipValidationStatus === 'invalid-format' && (
+             <p className="text-red-500 text-sm mt-1">❌ Please enter a 5-digit ZIP code</p>
+            )}
+             {zipValidationStatus.startsWith('valid -') && (
+             <p className="text-green-500 text-sm mt-1">✓ {zipValidationStatus}</p>
+           )}
+            {zipValidationStatus === 'valid-format' && (
+            <p className="text-green-500 text-sm mt-1">✓ Valid ZIP format</p>
+             )}
+           </div>
 
                   <button
                     onClick={handleNextStep}
