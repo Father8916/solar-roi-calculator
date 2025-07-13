@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Calculator, Sun, TrendingUp, User, DollarSign, Zap, AlertTriangle, CheckCircle, PiggyBank } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Calculator, Sun, TrendingUp, User, DollarSign, Zap, AlertTriangle, CheckCircle, PiggyBank, MapPin, Globe } from 'lucide-react';
 
 const SolarROICalculator = () => {
   const [step, setStep] = useState(1);
@@ -23,6 +23,17 @@ const SolarROICalculator = () => {
   });
   const [results, setResults] = useState(null);
   const [showResults, setShowResults] = useState(false);
+  const [locationData, setLocationData] = useState({
+    isUSA: null,
+    detectedZip: null,
+    detectedState: null,
+    detectedCity: null
+  });
+  const [locationChecked, setLocationChecked] = useState(false);
+  const [zipValidation, setZipValidation] = useState({
+    isValidating: false,
+    isValid: null
+  });
 
   // Solar irradiance data (kWh/m²/day)
   const solarIrradiance = {
@@ -46,11 +57,81 @@ const SolarROICalculator = () => {
       ...prev,
       [field]: value
     }));
+
+    // Real-time ZIP validation
+    if (field === 'zipCode' && value.length === 5) {
+      validateRealUSZipCode(value);
+    }
+  };
+
+  // Enhanced email validation for homeowners and businesses
+  const validateEmail = (email) => {
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    return emailRegex.test(email) && email.length >= 5;
+  };
+
+  // Basic ZIP format validation
+  const validateUSZipCode = (zipCode) => {
+    const zipRegex = /^\d{5}$/;
+    return zipRegex.test(zipCode);
+  };
+
+  // Detect user location and validate ZIP code
+  const detectLocationAndValidateZip = async () => {
+    try {
+      // Get user's location
+      const locationResponse = await fetch('https://ipapi.co/json/');
+      const locationData = await locationResponse.json();
+      
+      setLocationData({
+        isUSA: locationData.country_code === 'US',
+        detectedZip: locationData.postal,
+        detectedState: locationData.region,
+        detectedCity: locationData.city
+      });
+      
+      // Auto-fill ZIP if they're in US and haven't entered one
+      if (locationData.country_code === 'US' && !formData.zipCode) {
+        handleInputChange('zipCode', locationData.postal);
+      }
+      
+      setLocationChecked(true);
+    } catch (error) {
+      console.log('Location detection failed, proceeding anyway');
+      setLocationChecked(true);
+    }
+  };
+
+  // Validate ZIP code against real US ZIP database
+  const validateRealUSZipCode = async (zipCode) => {
+    if (!zipCode || zipCode.length !== 5) {
+      setZipValidation({ isValidating: false, isValid: false });
+      return false;
+    }
+    
+    setZipValidation({ isValidating: true, isValid: null });
+    
+    try {
+      const response = await fetch(`https://api.zippopotam.us/us/${zipCode}`);
+      const isValid = response.ok;
+      setZipValidation({ isValidating: false, isValid });
+      return isValid;
+    } catch (error) {
+      // If API fails, fall back to basic validation
+      const isValid = /^\d{5}$/.test(zipCode);
+      setZipValidation({ isValidating: false, isValid });
+      return isValid;
+    }
   };
 
   const validateStep1 = () => {
-    return formData.name.trim() && formData.email.trim() && formData.phone.trim() && 
-           formData.address.trim() && formData.zipCode.trim();
+    return formData.name.trim().length >= 2 && 
+           validateEmail(formData.email) && 
+           formData.phone.trim().length >= 10 && 
+           formData.address.trim().length >= 5 && 
+           validateUSZipCode(formData.zipCode) &&
+           zipValidation.isValid === true &&
+           locationData.isUSA !== false; // Allow null (unknown) but block false
   };
 
   const validateStep2 = () => {
@@ -59,7 +140,7 @@ const SolarROICalculator = () => {
 
   const sendWebhook = async (leadData) => {
     try {
-      const webhookUrl = 'https://your-webhook-url.com/solar-roi-leads';
+      const webhookUrl = 'https://hook.us2.make.com/bthvgm9bsb6cjypl2j4fa6ma07b20eta';
       
       const response = await fetch(webhookUrl, {
         method: 'POST',
@@ -69,6 +150,14 @@ const SolarROICalculator = () => {
         body: JSON.stringify({
           timestamp: new Date().toISOString(),
           leadSource: 'Solar ROI Calculator',
+          locationVerification: {
+            isUSA: locationData.isUSA,
+            detectedLocation: `${locationData.detectedCity}, ${locationData.detectedState}`,
+            detectedZip: locationData.detectedZip,
+            enteredZip: formData.zipCode,
+            zipMatches: locationData.detectedZip === formData.zipCode,
+            zipValidated: zipValidation.isValid
+          },
           contactInfo: {
             name: formData.name,
             email: formData.email,
@@ -236,6 +325,11 @@ const SolarROICalculator = () => {
     }).format(amount);
   };
 
+  // Detect location when component loads
+  useEffect(() => {
+    detectLocationAndValidateZip();
+  }, []);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-yellow-50 to-orange-50 p-6">
       <div className="max-w-5xl mx-auto">
@@ -257,10 +351,29 @@ const SolarROICalculator = () => {
                 <h2 className="text-2xl font-semibold mb-6 flex items-center gap-2">
                   <User className="text-orange-500" />
                   Your Information
+                  {locationData.isUSA && (
+                    <span className="text-green-600 text-sm ml-2 flex items-center gap-1">
+                      <Globe className="w-4 h-4" />
+                      US Verified
+                    </span>
+                  )}
                 </h2>
                 <p className="text-gray-600 mb-6">
                   Get your personalized solar ROI analysis in 2 simple steps
                 </p>
+
+                {locationData.isUSA === false && (
+                  <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-6">
+                    <div className="flex items-center gap-2 text-orange-800">
+                      <AlertTriangle className="w-5 h-5" />
+                      <p className="font-medium">Outside USA Detected</p>
+                    </div>
+                    <p className="text-orange-700 text-sm mt-1">
+                      This solar calculator is currently only available for US residents. 
+                      If you're in the US, please verify your ZIP code below.
+                    </p>
+                  </div>
+                )}
 
                 <div className="space-y-6">
                   <div>
@@ -271,9 +384,14 @@ const SolarROICalculator = () => {
                       type="text"
                       value={formData.name}
                       onChange={(e) => handleInputChange('name', e.target.value)}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                      className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent ${
+                        formData.name && formData.name.trim().length < 2 ? 'border-red-500' : 'border-gray-300'
+                      }`}
                       placeholder="Enter your full name"
                     />
+                    {formData.name && formData.name.trim().length < 2 && (
+                      <p className="text-red-500 text-sm mt-1">Please enter at least 2 characters</p>
+                    )}
                   </div>
 
                   <div>
@@ -284,9 +402,14 @@ const SolarROICalculator = () => {
                       type="email"
                       value={formData.email}
                       onChange={(e) => handleInputChange('email', e.target.value)}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                      className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent ${
+                        formData.email && !validateEmail(formData.email) ? 'border-red-500' : 'border-gray-300'
+                      }`}
                       placeholder="your@email.com"
                     />
+                    {formData.email && !validateEmail(formData.email) && (
+                      <p className="text-red-500 text-sm mt-1">Please enter a valid email address</p>
+                    )}
                   </div>
 
                   <div>
@@ -297,9 +420,14 @@ const SolarROICalculator = () => {
                       type="tel"
                       value={formData.phone}
                       onChange={(e) => handleInputChange('phone', e.target.value)}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                      className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent ${
+                        formData.phone && formData.phone.trim().length < 10 ? 'border-red-500' : 'border-gray-300'
+                      }`}
                       placeholder="(555) 123-4567"
                     />
+                    {formData.phone && formData.phone.trim().length < 10 && (
+                      <p className="text-red-500 text-sm mt-1">Please enter a valid phone number</p>
+                    )}
                   </div>
 
                   <div>
@@ -310,23 +438,49 @@ const SolarROICalculator = () => {
                       type="text"
                       value={formData.address}
                       onChange={(e) => handleInputChange('address', e.target.value)}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                      className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent ${
+                        formData.address && formData.address.trim().length < 5 ? 'border-red-500' : 'border-gray-300'
+                      }`}
                       placeholder="123 Main Street, City, State"
                     />
+                    {formData.address && formData.address.trim().length < 5 && (
+                      <p className="text-red-500 text-sm mt-1">Please enter a complete address</p>
+                    )}
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                      <MapPin className="w-4 h-4" />
                       ZIP Code *
+                      {locationData.detectedZip && (
+                        <span className="text-blue-600 text-sm">
+                          (Detected: {locationData.detectedZip})
+                        </span>
+                      )}
                     </label>
                     <input
                       type="text"
                       value={formData.zipCode}
-                      onChange={(e) => handleInputChange('zipCode', e.target.value)}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                      onChange={(e) => handleInputChange('zipCode', e.target.value.replace(/\D/g, '').slice(0, 5))}
+                      className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent ${
+                        formData.zipCode && (!validateUSZipCode(formData.zipCode) || zipValidation.isValid === false) ? 'border-red-500' : 
+                        zipValidation.isValid === true ? 'border-green-500' : 'border-gray-300'
+                      }`}
                       placeholder="12345"
                       maxLength="5"
                     />
+                    {zipValidation.isValidating && (
+                      <p className="text-blue-500 text-sm mt-1 flex items-center gap-1">
+                        <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-500"></div>
+                        Validating ZIP code...
+                      </p>
+                    )}
+                    {formData.zipCode && validateUSZipCode(formData.zipCode) && zipValidation.isValid === true && (
+                      <p className="text-green-500 text-sm mt-1">✓ Valid US ZIP code</p>
+                    )}
+                    {formData.zipCode && (zipValidation.isValid === false || !validateUSZipCode(formData.zipCode)) && (
+                      <p className="text-red-500 text-sm mt-1">Please enter a valid US ZIP code</p>
+                    )}
                   </div>
 
                   <button
@@ -336,6 +490,11 @@ const SolarROICalculator = () => {
                   >
                     Continue to Energy Details
                   </button>
+                  {!validateStep1() && formData.zipCode && (
+                    <p className="text-gray-500 text-sm text-center">
+                      Please complete all fields with valid information to continue
+                    </p>
+                  )}
                 </div>
               </>
             ) : (
@@ -369,129 +528,6 @@ const SolarROICalculator = () => {
                           value={formData.monthlyBill}
                           onChange={(e) => handleInputChange('monthlyBill', e.target.value)}
                           className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                          placeholder="e.g., 180"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Electricity Rate ($/kWh)
-                        </label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={formData.electricityRate}
-                          onChange={(e) => handleInputChange('electricityRate', e.target.value)}
-                          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                          placeholder="0.12"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="bg-green-50 rounded-lg p-4">
-                    <h3 className="font-semibold text-green-800 mb-3">Solar System Investment</h3>
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Total System Cost ($) *
-                        </label>
-                        <input
-                          type="number"
-                          value={formData.systemCost}
-                          onChange={(e) => handleInputChange('systemCost', e.target.value)}
-                          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                          placeholder="e.g., 25000"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Down Payment ($)
-                        </label>
-                        <input
-                          type="number"
-                          value={formData.downPayment}
-                          onChange={(e) => handleInputChange('downPayment', e.target.value)}
-                          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                          placeholder="Leave blank if paying cash"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          System Size (kW)
-                        </label>
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={formData.systemSize}
-                          onChange={(e) => handleInputChange('systemSize', e.target.value)}
-                          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                          placeholder="Leave blank to auto-calculate"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Solar Resource
-                      </label>
-                      <select
-                        value={formData.location}
-                        onChange={(e) => handleInputChange('location', e.target.value)}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                      >
-                        <option value="high">High (Southwest US)</option>
-                        <option value="average">Average (Most of US)</option>
-                        <option value="low">Low (Northeast, Northwest)</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Roof Orientation
-                      </label>
-                      <select
-                        value={formData.roofType}
-                        onChange={(e) => handleInputChange('roofType', e.target.value)}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                      >
-                        <option value="south">South-facing</option>
-                        <option value="southeast">Southeast</option>
-                        <option value="southwest">Southwest</option>
-                        <option value="east">East-facing</option>
-                        <option value="west">West-facing</option>
-                        <option value="north">North-facing</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Analysis Period
-                      </label>
-                      <select
-                        value={formData.timeFrame}
-                        onChange={(e) => handleInputChange('timeFrame', e.target.value)}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                      >
-                        <option value="10">10 years</option>
-                        <option value="15">15 years</option>
-                        <option value="20">20 years</option>
-                        <option value="25">25 years</option>
-                        <option value="30">30 years</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Utility Rate Increase (%)
-                      </label>
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={formData.utilityRateIncrease}
-                        onChange={(e) => handleInputChange('utilityRateIncrease', e.target.value)}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                         placeholder="3.0"
                       />
                     </div>
@@ -674,4 +710,127 @@ const SolarROICalculator = () => {
   );
 };
 
-export default SolarROICalculator;
+export default SolarROICalculator; focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                          placeholder="e.g., 180"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Electricity Rate ($/kWh)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={formData.electricityRate}
+                          onChange={(e) => handleInputChange('electricityRate', e.target.value)}
+                          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                          placeholder="0.12"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-green-50 rounded-lg p-4">
+                    <h3 className="font-semibold text-green-800 mb-3">Solar System Investment</h3>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Total System Cost ($) *
+                        </label>
+                        <input
+                          type="number"
+                          value={formData.systemCost}
+                          onChange={(e) => handleInputChange('systemCost', e.target.value)}
+                          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                          placeholder="e.g., 25000"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Down Payment ($)
+                        </label>
+                        <input
+                          type="number"
+                          value={formData.downPayment}
+                          onChange={(e) => handleInputChange('downPayment', e.target.value)}
+                          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                          placeholder="Leave blank if paying cash"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          System Size (kW)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={formData.systemSize}
+                          onChange={(e) => handleInputChange('systemSize', e.target.value)}
+                          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                          placeholder="Leave blank to auto-calculate"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Solar Resource
+                      </label>
+                      <select
+                        value={formData.location}
+                        onChange={(e) => handleInputChange('location', e.target.value)}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                      >
+                        <option value="high">High (Southwest US)</option>
+                        <option value="average">Average (Most of US)</option>
+                        <option value="low">Low (Northeast, Northwest)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Roof Orientation
+                      </label>
+                      <select
+                        value={formData.roofType}
+                        onChange={(e) => handleInputChange('roofType', e.target.value)}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                      >
+                        <option value="south">South-facing</option>
+                        <option value="southeast">Southeast</option>
+                        <option value="southwest">Southwest</option>
+                        <option value="east">East-facing</option>
+                        <option value="west">West-facing</option>
+                        <option value="north">North-facing</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Analysis Period
+                      </label>
+                      <select
+                        value={formData.timeFrame}
+                        onChange={(e) => handleInputChange('timeFrame', e.target.value)}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                      >
+                        <option value="10">10 years</option>
+                        <option value="15">15 years</option>
+                        <option value="20">20 years</option>
+                        <option value="25">25 years</option>
+                        <option value="30">30 years</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Utility Rate Increase (%)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={formData.utilityRateIncrease}
+                        onChange={(e) => handleInputChange('utilityRateIncrease', e.target.value)}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg
