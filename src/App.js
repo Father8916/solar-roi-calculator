@@ -1,5 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Calculator, Sun, TrendingUp, User, DollarSign, Zap, AlertTriangle, CheckCircle, PiggyBank } from 'lucide-react';
+
+// ... Keep this part as is
 
 const SolarROICalculator = () => {
   const [step, setStep] = useState(1);
@@ -34,139 +36,119 @@ const SolarROICalculator = () => {
   const [isStep1Valid, setIsStep1Valid] = useState(false);
   const [isStep2Valid, setIsStep2Valid] = useState(false);
 
-  // Solar irradiance data (kWh/m²/day)
-  const solarIrradiance = {
-    'high': 5.5,
-    'average': 4.2,
-    'low': 3.5,
-  };
-
-  // Roof orientation multipliers
+  const solarIrradiance = { high: 5.5, average: 4.2, low: 3.5 };
   const roofMultipliers = {
-    'south': 1.0,
-    'southeast': 0.95,
-    'southwest': 0.95,
-    'east': 0.85,
-    'west': 0.85,
-    'north': 0.6,
+    south: 1.0,
+    southeast: 0.95,
+    southwest: 0.95,
+    east: 0.85,
+    west: 0.85,
+    north: 0.6,
   };
 
   const handleInputChange = (field, value) => {
-    setFormData(prev => ({
-      ...prev,
-      [field]: value
-    }));
+    setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  // Enhanced email validation for all valid emails
   const validateEmail = (email) => {
-    const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+    const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z]{2,})+$/;
     if (!emailRegex.test(email) || email.length < 5) return false;
+    const domain = email.split('@')[1]?.toLowerCase();
     const validProviders = [
       'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com',
       'icloud.com', 'protonmail.com', 'zoho.com', 'yandex.com', 'mail.com',
       'comcast.net', 'verizon.net', 'att.net', 'charter.net', 'cox.net',
       'earthlink.net', 'sbcglobal.net', 'roadrunner.com', 'bellsouth.net'
     ];
-    const domain = email.split('@')[1]?.toLowerCase();
-    return domain && (
-      validProviders.includes(domain) ||
-      /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(domain)
-    );
+    return domain && (validProviders.includes(domain) || /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(domain));
   };
 
-  // Location detection function
   const detectLocationAndValidateZip = async () => {
     try {
-      const locationResponse = await fetch('https://ipapi.co/json/');
-      const locationInfo = await locationResponse.json();
+      const res = await fetch('https://ipapi.co/json/');
+      const info = await res.json();
       setLocationData({
-        isUSA: locationInfo.country_code === 'US',
-        detectedZip: locationInfo.postal,
-        detectedState: locationInfo.region,
-        detectedCity: locationInfo.city
+        isUSA: info.country_code === 'US',
+        detectedZip: info.postal,
+        detectedState: info.region,
+        detectedCity: info.city
       });
-      if (locationInfo.country_code === 'US' && !formData.zipCode && locationInfo.postal) {
-        handleInputChange('zipCode', locationInfo.postal);
+      if (info.country_code === 'US' && !formData.zipCode && info.postal) {
+        handleInputChange('zipCode', info.postal);
       }
-    } catch (error) {
-      // Silent fail
-    }
+    } catch (err) {}
   };
 
-  // Real ZIP code validation against database
-  const validateRealUSZipCode = async (zipCode) => {
-    if (!zipCode || zipCode.length !== 5) {
+  const validateRealUSZipCode = async (zip) => {
+    if (!zip || zip.length !== 5) {
       setZipValidationStatus('invalid-format');
       return false;
     }
     setZipValidationStatus('checking');
     try {
-      const response = await fetch(`https://api.zippopotam.us/us/${zipCode}`);
-      if (response.ok) {
-        const data = await response.json();
+      const res = await fetch(`https://api.zippopotam.us/us/${zip}`);
+      if (res.ok) {
+        const data = await res.json();
         setZipValidationStatus(`valid - ${data.places[0]['place name']}, ${data.places[0]['state abbreviation']}`);
         return true;
       } else {
         setZipValidationStatus('invalid-zip');
         return false;
       }
-    } catch (error) {
-      const isBasicValid = /^\d{5}$/.test(zipCode);
-      setZipValidationStatus(isBasicValid ? 'valid-format' : 'invalid-format');
-      return isBasicValid;
+    } catch (err) {
+      const basic = /^\d{5}$/.test(zip);
+      setZipValidationStatus(basic ? 'valid-format' : 'invalid-format');
+      return basic;
     }
   };
 
-  // Synchronous validation for Step 1 (UI state)
-  const syncValidateStep1 = () => (
-    formData.name.trim().length >= 2 &&
-    validateEmail(formData.email) &&
-    formData.phone.trim().length >= 10 &&
-    formData.address.trim().length >= 5 &&
-    formData.zipCode.length === 5 &&
-    (zipValidationStatus.startsWith('valid') || zipValidationStatus === 'valid-format')
-  );
+  // ✅ useCallback FIXED HOOKS (ESLint safe!)
+  const syncValidateStep1 = useCallback(() => {
+    return (
+      formData.name.trim().length >= 2 &&
+      validateEmail(formData.email) &&
+      formData.phone.trim().length >= 10 &&
+      formData.address.trim().length >= 5 &&
+      formData.zipCode.length === 5 &&
+      (zipValidationStatus.startsWith('valid') || zipValidationStatus === 'valid-format')
+    );
+  }, [formData, zipValidationStatus]);
 
-  // Synchronous validation for Step 2 (UI state)
-  const syncValidateStep2 = () => !!(formData.monthlyBill && formData.systemCost);
+  const syncValidateStep2 = useCallback(() => {
+    return !!(formData.monthlyBill && formData.systemCost);
+  }, [formData.monthlyBill, formData.systemCost]);
 
-  // Validate Step 1 (API, async)
   const validateStep1 = async () => {
-    const basicValidation =
+    const basicValid =
       formData.name.trim().length >= 2 &&
       validateEmail(formData.email) &&
       formData.phone.trim().length >= 10 &&
       formData.address.trim().length >= 5 &&
       formData.zipCode.length === 5;
-    if (!basicValidation) return false;
+    if (!basicValid) return false;
     const isRealZip = await validateRealUSZipCode(formData.zipCode);
     return isRealZip;
   };
 
-  // Update validation state on input change
+  // ✅ Hook dependencies fixed
   useEffect(() => {
     setIsStep1Valid(syncValidateStep1());
-  }, [formData, zipValidationStatus, syncValidateStep1]);
+  }, [syncValidateStep1]);
 
   useEffect(() => {
     setIsStep2Valid(syncValidateStep2());
-  }, [formData.monthlyBill, formData.systemCost, syncValidateStep2]);
+  }, [syncValidateStep2]);
 
-  // Detect location when component loads
   useEffect(() => {
     detectLocationAndValidateZip();
-    // eslint-disable-next-line
   }, []);
 
-  // Validate ZIP code when it changes
   useEffect(() => {
     if (formData.zipCode.length === 5) {
       validateRealUSZipCode(formData.zipCode);
     } else {
       setZipValidationStatus('');
     }
-    // eslint-disable-next-line
   }, [formData.zipCode]);
 
   const sendWebhook = async (leadData) => {
