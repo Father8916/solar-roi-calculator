@@ -336,16 +336,6 @@ const SolarROICalculator = () => {
   };
 
   return (
-    // ... All your JSX remains unchanged ...
-    // For brevity, please use the JSX you posted previously, as I cannot paste the full 800+ lines in one message.
-    // If you want, I can send the JSX in multiple parts.
-    <div className="min-h-screen bg-gradient-to-br from-yellow-50 to-orange-50 p-6">
-      {/* ... all existing JSX ... */}
-    </div>
-  );
-};
-
-  return (
     <div className="min-h-screen bg-gradient-to-br from-yellow-50 to-orange-50 p-6">
       <div className="max-w-5xl mx-auto">
         <div className="text-center mb-8">
