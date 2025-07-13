@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Calculator, Sun, TrendingUp, User, DollarSign, Zap, AlertTriangle, CheckCircle, PiggyBank } from 'lucide-react';
 
 const SolarROICalculator = () => {
@@ -23,6 +23,16 @@ const SolarROICalculator = () => {
   });
   const [results, setResults] = useState(null);
   const [showResults, setShowResults] = useState(false);
+  
+  // New state for location and validation
+  const [locationData, setLocationData] = useState({
+    isUSA: null,
+    detectedZip: null,
+    detectedState: null,
+    detectedCity: null
+  });
+  const [locationChecked, setLocationChecked] = useState(false);
+  const [zipValidationStatus, setZipValidationStatus] = useState('');
 
   // Solar irradiance data (kWh/m²/day)
   const solarIrradiance = {
@@ -48,18 +58,129 @@ const SolarROICalculator = () => {
     }));
   };
 
-  const validateStep1 = () => {
-    return formData.name.trim() && formData.email.trim() && formData.phone.trim() && 
-           formData.address.trim() && formData.zipCode.trim();
+  // Enhanced email validation for all valid emails
+  const validateEmail = (email) => {
+    // Comprehensive email validation
+    const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+    
+    if (!emailRegex.test(email) || email.length < 5) {
+      return false;
+    }
+    
+    // Common email providers (free and business)
+    const validProviders = [
+      // Free email providers
+      'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com', 
+      'icloud.com', 'protonmail.com', 'zoho.com', 'yandex.com', 'mail.com',
+      
+      // ISP email providers
+      'comcast.net', 'verizon.net', 'att.net', 'charter.net', 'cox.net', 
+      'earthlink.net', 'sbcglobal.net', 'roadrunner.com', 'bellsouth.net',
+    ];
+    
+    const domain = email.split('@')[1]?.toLowerCase();
+    
+    // Allow known providers OR any valid business domain
+    return domain && (
+      validProviders.includes(domain) || 
+      /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(domain)
+    );
+  };
+
+  // Basic US ZIP code format validation
+  const validateUSZipCode = (zipCode) => {
+    return /^\d{5}$/.test(zipCode);
+  };
+
+  // Location detection function
+  const detectLocationAndValidateZip = async () => {
+    try {
+      const locationResponse = await fetch('https://ipapi.co/json/');
+      const locationInfo = await locationResponse.json();
+      
+      setLocationData({
+        isUSA: locationInfo.country_code === 'US',
+        detectedZip: locationInfo.postal,
+        detectedState: locationInfo.region,
+        detectedCity: locationInfo.city
+      });
+      
+      // Auto-fill ZIP if they're in US and haven't entered one
+      if (locationInfo.country_code === 'US' && !formData.zipCode && locationInfo.postal) {
+        handleInputChange('zipCode', locationInfo.postal);
+      }
+      
+      setLocationChecked(true);
+    } catch (error) {
+      console.log('Location detection failed, proceeding anyway');
+      setLocationChecked(true);
+    }
+  };
+
+  // Real ZIP code validation against database
+  const validateRealUSZipCode = async (zipCode) => {
+    if (!zipCode || zipCode.length !== 5) {
+      setZipValidationStatus('invalid-format');
+      return false;
+    }
+    
+    setZipValidationStatus('checking');
+    
+    try {
+      const response = await fetch(`https://api.zippopotam.us/us/${zipCode}`);
+      if (response.ok) {
+        const data = await response.json();
+        setZipValidationStatus(`valid - ${data.places[0]['place name']}, ${data.places[0]['state abbreviation']}`);
+        return true;
+      } else {
+        setZipValidationStatus('invalid-zip');
+        return false;
+      }
+    } catch (error) {
+      // If API fails, fall back to basic validation
+      const isBasicValid = /^\d{5}$/.test(zipCode);
+      setZipValidationStatus(isBasicValid ? 'valid-format' : 'invalid-format');
+      return isBasicValid;
+    }
+  };
+
+  // Updated Step 1 validation
+  const validateStep1 = async () => {
+    const basicValidation = 
+      formData.name.trim().length >= 2 && 
+      validateEmail(formData.email) && 
+      formData.phone.trim().length >= 10 && 
+      formData.address.trim().length >= 5 && 
+      formData.zipCode.length === 5;
+
+    if (!basicValidation) return false;
+    
+    // Check if ZIP code is real
+    const isRealZip = await validateRealUSZipCode(formData.zipCode);
+    return isRealZip;
   };
 
   const validateStep2 = () => {
     return formData.monthlyBill && formData.systemCost;
   };
 
+  // Detect location when component loads
+  useEffect(() => {
+    detectLocationAndValidateZip();
+  }, []);
+
+  // Validate ZIP code when it changes
+  useEffect(() => {
+    if (formData.zipCode.length === 5) {
+      validateRealUSZipCode(formData.zipCode);
+    } else {
+      setZipValidationStatus('');
+    }
+  }, [formData.zipCode]);
+
   const sendWebhook = async (leadData) => {
     try {
-      const webhookUrl = 'https://hook.us2.make.com/bthvgm9bsb6cjypl2j4fa6ma07b20eta';
+      const webhookUrl = 'https://your-webhook-url.com/solar-roi-leads';
       
       const response = await fetch(webhookUrl, {
         method: 'POST',
@@ -69,6 +190,15 @@ const SolarROICalculator = () => {
         body: JSON.stringify({
           timestamp: new Date().toISOString(),
           leadSource: 'Solar ROI Calculator',
+          locationVerification: {
+            isUSA: locationData.isUSA,
+            detectedLocation: locationData.detectedCity && locationData.detectedState ? 
+              `${locationData.detectedCity}, ${locationData.detectedState}` : 'Unknown',
+            detectedZip: locationData.detectedZip,
+            enteredZip: formData.zipCode,
+            zipMatches: locationData.detectedZip === formData.zipCode,
+            zipValidationStatus: zipValidationStatus
+          },
           contactInfo: {
             name: formData.name,
             email: formData.email,
@@ -108,30 +238,30 @@ const SolarROICalculator = () => {
     const financingRate = parseFloat(formData.financingRate) / 100 / 12;
 
     // System specifications
-    const systemSize = parseFloat(formData.systemSize) || (monthlyBill * 12) / (electricityRate * 1000 * 4.5); // Estimate if not provided
+    const systemSize = parseFloat(formData.systemSize) || (monthlyBill * 12) / (electricityRate * 1000 * 4.5);
     const peakSunHours = solarIrradiance[formData.location];
     const roofEfficiency = roofMultipliers[formData.roofType];
-    const systemEfficiency = 0.85; // Account for inverter losses, shading, etc.
+    const systemEfficiency = 0.85;
 
     // Annual solar production
     const annualProduction = systemSize * peakSunHours * 365 * roofEfficiency * systemEfficiency;
     const firstYearSavings = annualProduction * electricityRate;
 
     // Federal and state incentives
-    const federalTaxCredit = systemCost * 0.30; // 30% federal tax credit
+    const federalTaxCredit = systemCost * 0.30;
     const netSystemCost = systemCost - federalTaxCredit;
-    const actualOutOfPocket = downPayment - (downPayment * 0.30); // Tax credit on down payment
+    const actualOutOfPocket = downPayment - (downPayment * 0.30);
 
     // Financing calculations
     let monthlyLoanPayment = 0;
     let totalInterestPaid = 0;
     if (loanAmount > 0) {
-      const loanTermMonths = 20 * 12; // 20-year loan
+      const loanTermMonths = 20 * 12;
       monthlyLoanPayment = loanAmount * (financingRate * Math.pow(1 + financingRate, loanTermMonths)) / (Math.pow(1 + financingRate, loanTermMonths) - 1);
       totalInterestPaid = (monthlyLoanPayment * loanTermMonths) - loanAmount;
     }
 
-    // Calculate savings over time with utility rate increases
+    // Calculate savings over time
     let cumulativeSavings = 0;
     let cumulativeCosts = actualOutOfPocket + totalInterestPaid;
     let breakEvenYear = 0;
@@ -139,20 +269,16 @@ const SolarROICalculator = () => {
     let currentAnnualSavings = firstYearSavings;
 
     for (let year = 1; year <= timeFrame; year++) {
-      // Account for slight degradation of solar panels (0.5% per year)
       const systemDegradation = Math.pow(0.995, year - 1);
       const adjustedProduction = annualProduction * systemDegradation;
       
-      // Current year savings with utility rate increases
       currentAnnualSavings = adjustedProduction * electricityRate * Math.pow(1 + utilityRateIncrease, year - 1);
       cumulativeSavings += currentAnnualSavings;
       
-      // Add loan payments to costs (only for loan term)
       if (year <= 20 && loanAmount > 0) {
         cumulativeCosts += monthlyLoanPayment * 12;
       }
 
-      // Find break-even point
       if (cumulativeSavings >= cumulativeCosts && breakEvenYear === 0) {
         breakEvenYear = year;
       }
@@ -165,7 +291,7 @@ const SolarROICalculator = () => {
     const roi = (totalLifetimeSavings / totalInvestment) * 100;
     const annualizedROI = roi / timeFrame;
 
-    // Without solar projection (what they'll pay for electricity)
+    // Without solar projection
     let totalElectricityBillWithoutSolar = 0;
     for (let year = 1; year <= timeFrame; year++) {
       const yearlyBill = monthlyBill * 12 * Math.pow(1 + utilityRateIncrease, year - 1);
@@ -173,7 +299,7 @@ const SolarROICalculator = () => {
     }
 
     // Carbon offset calculation
-    const carbonOffsetPerYear = annualProduction * 0.0004; // metric tons CO2 per kWh
+    const carbonOffsetPerYear = annualProduction * 0.0004;
     const totalCarbonOffset = carbonOffsetPerYear * timeFrame;
 
     const calculationResults = {
@@ -220,9 +346,22 @@ const SolarROICalculator = () => {
     await sendWebhook(calculationResults);
   };
 
-  const handleNextStep = () => {
-    if (step === 1 && validateStep1()) {
-      setStep(2);
+  const handleNextStep = async () => {
+    if (step === 1) {
+      // Show loading state
+      const button = document.querySelector('button[type="submit"]') || document.querySelector('button');
+      const originalText = button ? button.textContent : '';
+      if (button) button.textContent = 'Validating...';
+      
+      const isValid = await validateStep1();
+      
+      if (button) button.textContent = originalText;
+      
+      if (isValid) {
+        setStep(2);
+      } else {
+        alert('Please ensure all fields are valid:\n- Real email address\n- Valid US ZIP code\n- Complete information');
+      }
     } else if (step === 2 && validateStep2()) {
       calculateSolarROI();
     }
@@ -271,9 +410,14 @@ const SolarROICalculator = () => {
                       type="text"
                       value={formData.name}
                       onChange={(e) => handleInputChange('name', e.target.value)}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                      className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent ${
+                        formData.name && formData.name.trim().length < 2 ? 'border-red-500' : 'border-gray-300'
+                      }`}
                       placeholder="Enter your full name"
                     />
+                    {formData.name && formData.name.trim().length < 2 && (
+                      <p className="text-red-500 text-sm mt-1">Please enter at least 2 characters</p>
+                    )}
                   </div>
 
                   <div>
@@ -284,9 +428,18 @@ const SolarROICalculator = () => {
                       type="email"
                       value={formData.email}
                       onChange={(e) => handleInputChange('email', e.target.value)}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                      className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent ${
+                        formData.email && !validateEmail(formData.email) ? 'border-red-500' : 
+                        formData.email && validateEmail(formData.email) ? 'border-green-500' : 'border-gray-300'
+                      }`}
                       placeholder="your@email.com"
                     />
+                    {formData.email && !validateEmail(formData.email) && (
+                      <p className="text-red-500 text-sm mt-1">Please enter a valid email address</p>
+                    )}
+                    {formData.email && validateEmail(formData.email) && (
+                      <p className="text-green-500 text-sm mt-1">✓ Valid email</p>
+                    )}
                   </div>
 
                   <div>
@@ -318,20 +471,52 @@ const SolarROICalculator = () => {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       ZIP Code *
+                      {locationData.isUSA && locationData.detectedZip && (
+                        <span className="text-green-600 text-sm ml-2">
+                          (Detected: {locationData.detectedZip})
+                        </span>
+                      )}
                     </label>
                     <input
                       type="text"
                       value={formData.zipCode}
-                      onChange={(e) => handleInputChange('zipCode', e.target.value)}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                      onChange={(e) => handleInputChange('zipCode', e.target.value.replace(/\D/g, '').slice(0, 5))}
+                      className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent ${
+                        zipValidationStatus === 'invalid-zip' || zipValidationStatus === 'invalid-format' ? 'border-red-500' : 
+                        zipValidationStatus.startsWith('valid') ? 'border-green-500' : 'border-gray-300'
+                      }`}
                       placeholder="12345"
                       maxLength="5"
                     />
+                    
+                    {/* Location warning for non-US users */}
+                    {locationData.isUSA === false && (
+                      <p className="text-orange-500 text-sm mt-1">
+                        ⚠️ This calculator is currently only available for US residents
+                      </p>
+                    )}
+                    
+                    {/* ZIP validation status */}
+                    {zipValidationStatus === 'checking' && (
+                      <p className="text-blue-500 text-sm mt-1">🔍 Validating ZIP code...</p>
+                    )}
+                    {zipValidationStatus === 'invalid-zip' && (
+                      <p className="text-red-500 text-sm mt-1">❌ Invalid ZIP code - please enter a real US ZIP</p>
+                    )}
+                    {zipValidationStatus === 'invalid-format' && (
+                      <p className="text-red-500 text-sm mt-1">❌ Please enter a 5-digit ZIP code</p>
+                    )}
+                    {zipValidationStatus.startsWith('valid -') && (
+                      <p className="text-green-500 text-sm mt-1">✓ {zipValidationStatus}</p>
+                    )}
+                    {zipValidationStatus === 'valid-format' && (
+                      <p className="text-green-500 text-sm mt-1">✓ Valid ZIP format</p>
+                    )}
                   </div>
 
                   <button
                     onClick={handleNextStep}
-                    disabled={!validateStep1()}
+                    disabled={!validateStep1}
                     className="w-full bg-gradient-to-r from-orange-500 to-yellow-500 text-white py-3 px-6 rounded-lg font-semibold hover:from-orange-600 hover:to-yellow-600 transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                   >
                     Continue to Energy Details
@@ -487,191 +672,191 @@ const SolarROICalculator = () => {
                         Utility Rate Increase (%)
                       </label>
                       <input
-                        type="number"
-                        step="0.1"
-                        value={formData.utilityRateIncrease}
-                        onChange={(e) => handleInputChange('utilityRateIncrease', e.target.value)}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                        placeholder="3.0"
-                      />
-                    </div>
-                  </div>
+                       type="number"
+                       step="0.1"
+                       value={formData.utilityRateIncrease}
+                       onChange={(e) => handleInputChange('utilityRateIncrease', e.target.value)}
+                       className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                       placeholder="3.0"
+                     />
+                   </div>
+                 </div>
 
-                  <button
-                    onClick={handleNextStep}
-                    disabled={!validateStep2()}
-                    className="w-full bg-gradient-to-r from-orange-500 to-yellow-500 text-white py-3 px-6 rounded-lg font-semibold hover:from-orange-600 hover:to-yellow-600 transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
-                  >
-                    Calculate My Solar ROI
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
+                 <button
+                   onClick={handleNextStep}
+                   disabled={!validateStep2()}
+                   className="w-full bg-gradient-to-r from-orange-500 to-yellow-500 text-white py-3 px-6 rounded-lg font-semibold hover:from-orange-600 hover:to-yellow-600 transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                 >
+                   Calculate My Solar ROI
+                 </button>
+               </div>
+             </>
+           )}
+         </div>
 
-          {/* Results Section */}
-          <div className="bg-white rounded-xl shadow-lg p-6">
-            <h2 className="text-2xl font-semibold mb-6 flex items-center gap-2">
-              <TrendingUp className="text-green-500" />
-              Your Solar ROI Analysis
-            </h2>
+         {/* Results Section */}
+         <div className="bg-white rounded-xl shadow-lg p-6">
+           <h2 className="text-2xl font-semibold mb-6 flex items-center gap-2">
+             <TrendingUp className="text-green-500" />
+             Your Solar ROI Analysis
+           </h2>
 
-            {!showResults ? (
-              <div className="text-center text-gray-500 py-12">
-                <Sun className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-                <p>Complete the form to see if solar will pay for itself</p>
-              </div>
-            ) : (
-              <div className="space-y-6">
-                {/* ROI Declaration */}
-                <div className={`rounded-lg p-6 text-center ${results.isProfitable ? 'bg-green-50' : 'bg-red-50'}`}>
-                  <div className="flex items-center justify-center mb-3">
-                    {results.isProfitable ? (
-                      <CheckCircle className="w-8 h-8 text-green-500" />
-                    ) : (
-                      <AlertTriangle className="w-8 h-8 text-red-500" />
-                    )}
-                  </div>
-                  <h3 className={`text-xl font-bold mb-2 ${results.isProfitable ? 'text-green-800' : 'text-red-800'}`}>
-                    {results.isProfitable 
-                      ? `Solar Will Pay for Itself!` 
-                      : 'Solar May Not Be Profitable'
-                    }
-                  </h3>
-                  <p className={`text-lg ${results.isProfitable ? 'text-green-700' : 'text-red-700'}`}>
-                    {results.isProfitable 
-                      ? `${results.roi}% ROI over ${formData.timeFrame} years`
-                      : `Negative ${Math.abs(results.roi)}% ROI over ${formData.timeFrame} years`
-                    }
-                  </p>
-                  {results.isProfitable && (
-                    <p className="text-sm text-green-600 mt-2">
-                      Breaks even in year {results.paybackPeriod}
-                    </p>
-                  )}
-                </div>
+           {!showResults ? (
+             <div className="text-center text-gray-500 py-12">
+               <Sun className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+               <p>Complete the form to see if solar will pay for itself</p>
+             </div>
+           ) : (
+             <div className="space-y-6">
+               {/* ROI Declaration */}
+               <div className={`rounded-lg p-6 text-center ${results.isProfitable ? 'bg-green-50' : 'bg-red-50'}`}>
+                 <div className="flex items-center justify-center mb-3">
+                   {results.isProfitable ? (
+                     <CheckCircle className="w-8 h-8 text-green-500" />
+                   ) : (
+                     <AlertTriangle className="w-8 h-8 text-red-500" />
+                   )}
+                 </div>
+                 <h3 className={`text-xl font-bold mb-2 ${results.isProfitable ? 'text-green-800' : 'text-red-800'}`}>
+                   {results.isProfitable 
+                     ? `Solar Will Pay for Itself!` 
+                     : 'Solar May Not Be Profitable'
+                   }
+                 </h3>
+                 <p className={`text-lg ${results.isProfitable ? 'text-green-700' : 'text-red-700'}`}>
+                   {results.isProfitable 
+                     ? `${results.roi}% ROI over ${formData.timeFrame} years`
+                     : `Negative ${Math.abs(results.roi)}% ROI over ${formData.timeFrame} years`
+                   }
+                 </p>
+                 {results.isProfitable && (
+                   <p className="text-sm text-green-600 mt-2">
+                     Breaks even in year {results.paybackPeriod}
+                   </p>
+                 )}
+               </div>
 
-                {/* Monthly Impact */}
-                <div className="bg-blue-50 rounded-lg p-4">
-                  <h3 className="font-semibold text-blue-800 mb-3 flex items-center gap-2">
-                    <Zap className="w-4 h-4" />
-                    Monthly Bill Impact
-                  </h3>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Current Monthly Bill</span>
-                      <span className="font-semibold">{formatCurrency(results.currentMonthlyBill)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">New Monthly Bill</span>
-                      <span className="font-semibold text-green-600">{formatCurrency(results.newMonthlyBill)}</span>
-                    </div>
-                    <div className="flex justify-between border-t pt-2">
-                      <span className="text-gray-600">Monthly Savings</span>
-                      <span className="font-bold text-green-600">{formatCurrency(results.monthlySavings)}</span>
-                    </div>
-                  </div>
-                </div>
+               {/* Monthly Impact */}
+               <div className="bg-blue-50 rounded-lg p-4">
+                 <h3 className="font-semibold text-blue-800 mb-3 flex items-center gap-2">
+                   <Zap className="w-4 h-4" />
+                   Monthly Bill Impact
+                 </h3>
+                 <div className="space-y-2 text-sm">
+                   <div className="flex justify-between">
+                     <span className="text-gray-600">Current Monthly Bill</span>
+                     <span className="font-semibold">{formatCurrency(results.currentMonthlyBill)}</span>
+                   </div>
+                   <div className="flex justify-between">
+                     <span className="text-gray-600">New Monthly Bill</span>
+                     <span className="font-semibold text-green-600">{formatCurrency(results.newMonthlyBill)}</span>
+                   </div>
+                   <div className="flex justify-between border-t pt-2">
+                     <span className="text-gray-600">Monthly Savings</span>
+                     <span className="font-bold text-green-600">{formatCurrency(results.monthlySavings)}</span>
+                   </div>
+                 </div>
+               </div>
 
-                {/* Financial Summary */}
-                <div className="bg-green-50 rounded-lg p-4">
-                  <h3 className="font-semibold text-green-800 mb-3 flex items-center gap-2">
-                    <DollarSign className="w-4 h-4" />
-                    Investment Summary
-                  </h3>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">System Cost</span>
-                      <span className="font-semibold">{formatCurrency(results.systemCost)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Federal Tax Credit (30%)</span>
-                      <span className="font-semibold text-green-600">-{formatCurrency(results.federalTaxCredit)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Net Investment</span>
-                      <span className="font-semibold">{formatCurrency(results.netSystemCost)}</span>
-                    </div>
-                    <div className="flex justify-between border-t pt-2">
-                      <span className="text-gray-600">{formData.timeFrame}-Year Savings</span>
-                      <span className={`font-bold ${results.totalLifetimeSavings > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {formatCurrency(results.totalLifetimeSavings)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
+               {/* Financial Summary */}
+               <div className="bg-green-50 rounded-lg p-4">
+                 <h3 className="font-semibold text-green-800 mb-3 flex items-center gap-2">
+                   <DollarSign className="w-4 h-4" />
+                   Investment Summary
+                 </h3>
+                 <div className="space-y-2 text-sm">
+                   <div className="flex justify-between">
+                     <span className="text-gray-600">System Cost</span>
+                     <span className="font-semibold">{formatCurrency(results.systemCost)}</span>
+                   </div>
+                   <div className="flex justify-between">
+                     <span className="text-gray-600">Federal Tax Credit (30%)</span>
+                     <span className="font-semibold text-green-600">-{formatCurrency(results.federalTaxCredit)}</span>
+                   </div>
+                   <div className="flex justify-between">
+                     <span className="text-gray-600">Net Investment</span>
+                     <span className="font-semibold">{formatCurrency(results.netSystemCost)}</span>
+                   </div>
+                   <div className="flex justify-between border-t pt-2">
+                     <span className="text-gray-600">{formData.timeFrame}-Year Savings</span>
+                     <span className={`font-bold ${results.totalLifetimeSavings > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                       {formatCurrency(results.totalLifetimeSavings)}
+                     </span>
+                   </div>
+                 </div>
+               </div>
 
-                {/* System Performance */}
-                <div className="bg-yellow-50 rounded-lg p-4">
-                  <h3 className="font-semibold text-yellow-800 mb-3">System Performance</h3>
-                  <div className="space-y-1 text-sm text-gray-600">
-                    <p>• System Size: {results.systemSize} kW</p>
-                    <p>• Annual Production: {results.annualProduction.toLocaleString()} kWh</p>
-                    <p>• First Year Savings: {formatCurrency(results.firstYearSavings)}</p>
-                    <p>• Payback Period: {results.paybackPeriod} years</p>
-                  </div>
-                </div>
+               {/* System Performance */}
+               <div className="bg-yellow-50 rounded-lg p-4">
+                 <h3 className="font-semibold text-yellow-800 mb-3">System Performance</h3>
+                 <div className="space-y-1 text-sm text-gray-600">
+                   <p>• System Size: {results.systemSize} kW</p>
+                   <p>• Annual Production: {results.annualProduction.toLocaleString()} kWh</p>
+                   <p>• First Year Savings: {formatCurrency(results.firstYearSavings)}</p>
+                   <p>• Payback Period: {results.paybackPeriod} years</p>
+                 </div>
+               </div>
 
-                {/* Environmental Impact */}
-                <div className="bg-green-50 rounded-lg p-4">
-                  <h3 className="font-semibold text-green-800 mb-3 flex items-center gap-2">
-                    <PiggyBank className="w-4 h-4" />
-                    Environmental Impact
-                  </h3>
-                  <div className="space-y-1 text-sm text-gray-600">
-                    <p>• Annual CO₂ Offset: {results.carbonOffsetPerYear} metric tons</p>
-                    <p>• {formData.timeFrame}-Year CO₂ Offset: {results.totalCarbonOffset} metric tons</p>
-                    <p>• Equivalent to planting {Math.round(results.totalCarbonOffset * 16)} trees</p>
-                  </div>
-                </div>
+               {/* Environmental Impact */}
+               <div className="bg-green-50 rounded-lg p-4">
+                 <h3 className="font-semibold text-green-800 mb-3 flex items-center gap-2">
+                   <PiggyBank className="w-4 h-4" />
+                   Environmental Impact
+                 </h3>
+                 <div className="space-y-1 text-sm text-gray-600">
+                   <p>• Annual CO₂ Offset: {results.carbonOffsetPerYear} metric tons</p>
+                   <p>• {formData.timeFrame}-Year CO₂ Offset: {results.totalCarbonOffset} metric tons</p>
+                   <p>• Equivalent to planting {Math.round(results.totalCarbonOffset * 16)} trees</p>
+                 </div>
+               </div>
 
-                {/* Future Electricity Costs */}
-                <div className="bg-orange-50 rounded-lg p-4">
-                  <h3 className="font-semibold text-orange-800 mb-2">Without Solar</h3>
-                  <p className="text-sm text-gray-600">
-                    You'd pay <strong>{formatCurrency(results.totalElectricityBillWithoutSolar)}</strong> for electricity over {formData.timeFrame} years with rate increases.
-                  </p>
-                </div>
+               {/* Future Electricity Costs */}
+               <div className="bg-orange-50 rounded-lg p-4">
+                 <h3 className="font-semibold text-orange-800 mb-2">Without Solar</h3>
+                 <p className="text-sm text-gray-600">
+                   You'd pay <strong>{formatCurrency(results.totalElectricityBillWithoutSolar)}</strong> for electricity over {formData.timeFrame} years with rate increases.
+                 </p>
+               </div>
 
-                {/* CTA */}
-                <div className="bg-gradient-to-r from-orange-500 to-yellow-500 text-white rounded-lg p-4 text-center">
-                  <h3 className="font-semibold mb-2">
-                    {results.isProfitable 
-                      ? `Ready to Start Saving, ${formData.name}?`
-                      : `Let's Explore Better Options, ${formData.name}!`
-                    }
-                  </h3>
-                  <p className="text-sm mb-3">
-                    {results.isProfitable 
-                      ? `Your solar investment will save ${formatCurrency(results.totalLifetimeSavings)} over ${formData.timeFrame} years!`
-                      : `Let's find ways to make solar work better for your situation.`
-                    }
-                  </p>
-                  <p className="text-xs mb-4">I'll call you at {formData.phone} to discuss your solar options.</p>
-                  <button className="bg-white text-orange-600 px-6 py-2 rounded-lg font-semibold hover:bg-gray-100 transition-colors">
-                    {results.isProfitable ? 'Get My Free Solar Quote' : 'Explore Solar Options'}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+               {/* CTA */}
+               <div className="bg-gradient-to-r from-orange-500 to-yellow-500 text-white rounded-lg p-4 text-center">
+                 <h3 className="font-semibold mb-2">
+                   {results.isProfitable 
+                     ? `Ready to Start Saving, ${formData.name}?`
+                     : `Let's Explore Better Options, ${formData.name}!`
+                   }
+                 </h3>
+                 <p className="text-sm mb-3">
+                   {results.isProfitable 
+                     ? `Your solar investment will save ${formatCurrency(results.totalLifetimeSavings)} over ${formData.timeFrame} years!`
+                     : `Let's find ways to make solar work better for your situation.`
+                   }
+                 </p>
+                 <p className="text-xs mb-4">I'll call you at {formData.phone} to discuss your solar options.</p>
+                 <button className="bg-white text-orange-600 px-6 py-2 rounded-lg font-semibold hover:bg-gray-100 transition-colors">
+                   {results.isProfitable ? 'Get My Free Solar Quote' : 'Explore Solar Options'}
+                 </button>
+               </div>
+             </div>
+           )}
+         </div>
+       </div>
 
-        {/* Disclaimer */}
-        <div className="mt-8 bg-gray-100 rounded-lg p-4 text-sm text-gray-600">
-          <p className="mb-2">
-            <strong>Disclaimer:</strong> This calculator provides estimates based on average conditions, typical equipment performance, 
-            and standard assumptions. Actual results may vary based on specific equipment, installation factors, local weather patterns, 
-            roof conditions, shading, and utility rate structures.
-          </p>
-          <p>
-            Solar panel performance may degrade over time. Federal tax credit is subject to change. Consult with certified solar 
-            professionals for accurate system design and financial projections specific to your property.
-          </p>
-        </div>
-      </div>
-    </div>
-  );
+       {/* Disclaimer */}
+       <div className="mt-8 bg-gray-100 rounded-lg p-4 text-sm text-gray-600">
+         <p className="mb-2">
+           <strong>Disclaimer:</strong> This calculator provides estimates based on average conditions, typical equipment performance, 
+           and standard assumptions. Actual results may vary based on specific equipment, installation factors, local weather patterns, 
+           roof conditions, shading, and utility rate structures.
+         </p>
+         <p>
+           Solar panel performance may degrade over time. Federal tax credit is subject to change. Consult with certified solar 
+           professionals for accurate system design and financial projections specific to your property.
+         </p>
+       </div>
+     </div>
+   </div>
+ );
 };
 
 export default SolarROICalculator;
