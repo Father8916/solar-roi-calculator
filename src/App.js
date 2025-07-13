@@ -516,11 +516,11 @@ const SolarROICalculator = () => {
 
                   <button
                     onClick={handleNextStep}
-                    disabled={!validateStep1}
+                    disabled={!formData.name.trim() || !formData.email.trim() || !formData.phone.trim() || !formData.address.trim() || !formData.zipCode.trim()}
                     className="w-full bg-gradient-to-r from-orange-500 to-yellow-500 text-white py-3 px-6 rounded-lg font-semibold hover:from-orange-600 hover:to-yellow-600 transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                   >
                     Continue to Energy Details
-                  </button>
+                 </button>
                 </div>
               </>
             ) : (
