@@ -169,11 +169,6 @@ const SolarROICalculator = () => {
     // eslint-disable-next-line
   }, [formData.zipCode]);
 
-  // ... rest of your component code (no changes needed below this line)
-  // Please copy the rest of your file starting from line 180 as shown in your latest commit.
-
-};
-
   const sendWebhook = async (leadData) => {
     try {
       const webhookUrl = 'https://hook.us2.make.com/bthvgm9bsb6cjypl2j4fa6ma07b20eta';
@@ -339,6 +334,16 @@ const SolarROICalculator = () => {
       maximumFractionDigits: 0,
     }).format(amount);
   };
+
+  return (
+    // ... All your JSX remains unchanged ...
+    // For brevity, please use the JSX you posted previously, as I cannot paste the full 800+ lines in one message.
+    // If you want, I can send the JSX in multiple parts.
+    <div className="min-h-screen bg-gradient-to-br from-yellow-50 to-orange-50 p-6">
+      {/* ... all existing JSX ... */}
+    </div>
+  );
+};
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-yellow-50 to-orange-50 p-6">
