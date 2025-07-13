@@ -11,8 +11,11 @@ const SolarROICalculator = () => {
     zipCode: '',
     monthlyBill: '',
     electricityRate: '0.12',
+    annualUsage: '',
+    systemSize: '',
     systemCost: '',
     downPayment: '',
+    financingRate: '6.5',
     location: 'average',
     roofType: 'south',
     timeFrame: '20',
@@ -21,12 +24,14 @@ const SolarROICalculator = () => {
   const [results, setResults] = useState(null);
   const [showResults, setShowResults] = useState(false);
 
+  // Solar irradiance data (kWh/m²/day)
   const solarIrradiance = {
-    'high': 5.5,
-    'average': 4.2,
-    'low': 3.5,
+    'high': 5.5, // Southwest US
+    'average': 4.2, // Most of US  
+    'low': 3.5, // Northeast, Northwest
   };
 
+  // Roof orientation multipliers
   const roofMultipliers = {
     'south': 1.0,
     'southeast': 0.95,
@@ -43,17 +48,9 @@ const SolarROICalculator = () => {
     }));
   };
 
-  const validateEmail = (email) => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
-  };
-
   const validateStep1 = () => {
-    return formData.name.trim().length >= 2 && 
-           validateEmail(formData.email) && 
-           formData.phone.trim().length >= 10 && 
-           formData.address.trim().length >= 5 && 
-           formData.zipCode.length === 5;
+    return formData.name.trim() && formData.email.trim() && formData.phone.trim() && 
+           formData.address.trim() && formData.zipCode.trim();
   };
 
   const validateStep2 = () => {
@@ -81,7 +78,10 @@ const SolarROICalculator = () => {
           },
           energyData: {
             monthlyBill: formData.monthlyBill,
+            electricityRate: formData.electricityRate,
+            systemSize: formData.systemSize,
             systemCost: formData.systemCost,
+            financingRate: formData.financingRate,
             timeFrame: formData.timeFrame,
           },
           calculations: leadData,
@@ -101,43 +101,115 @@ const SolarROICalculator = () => {
     const monthlyBill = parseFloat(formData.monthlyBill);
     const systemCost = parseFloat(formData.systemCost);
     const downPayment = parseFloat(formData.downPayment) || systemCost;
+    const loanAmount = systemCost - downPayment;
     const electricityRate = parseFloat(formData.electricityRate);
     const timeFrame = parseFloat(formData.timeFrame);
     const utilityRateIncrease = parseFloat(formData.utilityRateIncrease) / 100;
+    const financingRate = parseFloat(formData.financingRate) / 100 / 12;
 
-    const systemSize = (monthlyBill * 12) / (electricityRate * 1000 * 4.5);
+    // System specifications
+    const systemSize = parseFloat(formData.systemSize) || (monthlyBill * 12) / (electricityRate * 1000 * 4.5); // Estimate if not provided
     const peakSunHours = solarIrradiance[formData.location];
     const roofEfficiency = roofMultipliers[formData.roofType];
-    const systemEfficiency = 0.85;
+    const systemEfficiency = 0.85; // Account for inverter losses, shading, etc.
 
+    // Annual solar production
     const annualProduction = systemSize * peakSunHours * 365 * roofEfficiency * systemEfficiency;
     const firstYearSavings = annualProduction * electricityRate;
-    const federalTaxCredit = systemCost * 0.30;
-    const netSystemCost = systemCost - federalTaxCredit;
 
-    let totalLifetimeSavings = 0;
-    for (let year = 1; year <= timeFrame; year++) {
-      const systemDegradation = Math.pow(0.995, year - 1);
-      const adjustedProduction = annualProduction * systemDegradation;
-      const currentAnnualSavings = adjustedProduction * electricityRate * Math.pow(1 + utilityRateIncrease, year - 1);
-      totalLifetimeSavings += currentAnnualSavings;
+    // Federal and state incentives
+    const federalTaxCredit = systemCost * 0.30; // 30% federal tax credit
+    const netSystemCost = systemCost - federalTaxCredit;
+    const actualOutOfPocket = downPayment - (downPayment * 0.30); // Tax credit on down payment
+
+    // Financing calculations
+    let monthlyLoanPayment = 0;
+    let totalInterestPaid = 0;
+    if (loanAmount > 0) {
+      const loanTermMonths = 20 * 12; // 20-year loan
+      monthlyLoanPayment = loanAmount * (financingRate * Math.pow(1 + financingRate, loanTermMonths)) / (Math.pow(1 + financingRate, loanTermMonths) - 1);
+      totalInterestPaid = (monthlyLoanPayment * loanTermMonths) - loanAmount;
     }
 
-    totalLifetimeSavings -= netSystemCost;
-    const roi = (totalLifetimeSavings / netSystemCost) * 100;
-    const paybackPeriod = netSystemCost / firstYearSavings;
+    // Calculate savings over time with utility rate increases
+    let cumulativeSavings = 0;
+    let cumulativeCosts = actualOutOfPocket + totalInterestPaid;
+    let breakEvenYear = 0;
+    let totalLifetimeSavings = 0;
+    let currentAnnualSavings = firstYearSavings;
+
+    for (let year = 1; year <= timeFrame; year++) {
+      // Account for slight degradation of solar panels (0.5% per year)
+      const systemDegradation = Math.pow(0.995, year - 1);
+      const adjustedProduction = annualProduction * systemDegradation;
+      
+      // Current year savings with utility rate increases
+      currentAnnualSavings = adjustedProduction * electricityRate * Math.pow(1 + utilityRateIncrease, year - 1);
+      cumulativeSavings += currentAnnualSavings;
+      
+      // Add loan payments to costs (only for loan term)
+      if (year <= 20 && loanAmount > 0) {
+        cumulativeCosts += monthlyLoanPayment * 12;
+      }
+
+      // Find break-even point
+      if (cumulativeSavings >= cumulativeCosts && breakEvenYear === 0) {
+        breakEvenYear = year;
+      }
+    }
+
+    totalLifetimeSavings = cumulativeSavings - cumulativeCosts;
+
+    // Calculate ROI
+    const totalInvestment = actualOutOfPocket + totalInterestPaid;
+    const roi = (totalLifetimeSavings / totalInvestment) * 100;
+    const annualizedROI = roi / timeFrame;
+
+    // Without solar projection (what they'll pay for electricity)
+    let totalElectricityBillWithoutSolar = 0;
+    for (let year = 1; year <= timeFrame; year++) {
+      const yearlyBill = monthlyBill * 12 * Math.pow(1 + utilityRateIncrease, year - 1);
+      totalElectricityBillWithoutSolar += yearlyBill;
+    }
+
+    // Carbon offset calculation
+    const carbonOffsetPerYear = annualProduction * 0.0004; // metric tons CO2 per kWh
+    const totalCarbonOffset = carbonOffsetPerYear * timeFrame;
 
     const calculationResults = {
+      // System details
       systemSize: Math.round(systemSize * 10) / 10,
       annualProduction: Math.round(annualProduction),
       systemCost: Math.round(systemCost),
       netSystemCost: Math.round(netSystemCost),
+      actualOutOfPocket: Math.round(actualOutOfPocket),
+      
+      // Savings and ROI
       firstYearSavings: Math.round(firstYearSavings),
       totalLifetimeSavings: Math.round(totalLifetimeSavings),
+      totalElectricityBillWithoutSolar: Math.round(totalElectricityBillWithoutSolar),
+      cumulativeSavings: Math.round(cumulativeSavings),
+      
+      // Financial metrics
       roi: Math.round(roi * 10) / 10,
+      annualizedROI: Math.round(annualizedROI * 10) / 10,
+      breakEvenYear,
       federalTaxCredit: Math.round(federalTaxCredit),
-      paybackPeriod: Math.round(paybackPeriod * 10) / 10,
+      
+      // Financing
+      monthlyLoanPayment: Math.round(monthlyLoanPayment),
+      totalInterestPaid: Math.round(totalInterestPaid),
+      
+      // Environmental
+      carbonOffsetPerYear: Math.round(carbonOffsetPerYear * 10) / 10,
+      totalCarbonOffset: Math.round(totalCarbonOffset * 10) / 10,
+      
+      // Analysis
       isProfitable: totalLifetimeSavings > 0,
+      paybackPeriod: breakEvenYear,
+      effectiveAnnualSavings: Math.round(totalLifetimeSavings / timeFrame),
+      
+      // Utility bill impact
       currentMonthlyBill: Math.round(monthlyBill),
       newMonthlyBill: Math.round(Math.max(0, monthlyBill - (firstYearSavings / 12))),
       monthlySavings: Math.round(Math.min(monthlyBill, firstYearSavings / 12)),
@@ -178,6 +250,7 @@ const SolarROICalculator = () => {
         </div>
 
         <div className="grid lg:grid-cols-2 gap-8">
+          {/* Input Section */}
           <div className="bg-white rounded-xl shadow-lg p-6">
             {step === 1 ? (
               <>
@@ -249,7 +322,7 @@ const SolarROICalculator = () => {
                     <input
                       type="text"
                       value={formData.zipCode}
-                      onChange={(e) => handleInputChange('zipCode', e.target.value.replace(/\D/g, '').slice(0, 5))}
+                      onChange={(e) => handleInputChange('zipCode', e.target.value)}
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                       placeholder="12345"
                       maxLength="5"
@@ -340,6 +413,19 @@ const SolarROICalculator = () => {
                           onChange={(e) => handleInputChange('downPayment', e.target.value)}
                           className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                           placeholder="Leave blank if paying cash"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          System Size (kW)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={formData.systemSize}
+                          onChange={(e) => handleInputChange('systemSize', e.target.value)}
+                          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                          placeholder="Leave blank to auto-calculate"
                         />
                       </div>
                     </div>
@@ -437,6 +523,7 @@ const SolarROICalculator = () => {
               </div>
             ) : (
               <div className="space-y-6">
+                {/* ROI Declaration */}
                 <div className={`rounded-lg p-6 text-center ${results.isProfitable ? 'bg-green-50' : 'bg-red-50'}`}>
                   <div className="flex items-center justify-center mb-3">
                     {results.isProfitable ? (
@@ -459,11 +546,12 @@ const SolarROICalculator = () => {
                   </p>
                   {results.isProfitable && (
                     <p className="text-sm text-green-600 mt-2">
-                      Breaks even in {results.paybackPeriod} years
+                      Breaks even in year {results.paybackPeriod}
                     </p>
                   )}
                 </div>
 
+                {/* Monthly Impact */}
                 <div className="bg-blue-50 rounded-lg p-4">
                   <h3 className="font-semibold text-blue-800 mb-3 flex items-center gap-2">
                     <Zap className="w-4 h-4" />
@@ -485,6 +573,7 @@ const SolarROICalculator = () => {
                   </div>
                 </div>
 
+                {/* Financial Summary */}
                 <div className="bg-green-50 rounded-lg p-4">
                   <h3 className="font-semibold text-green-800 mb-3 flex items-center gap-2">
                     <DollarSign className="w-4 h-4" />
@@ -512,6 +601,39 @@ const SolarROICalculator = () => {
                   </div>
                 </div>
 
+                {/* System Performance */}
+                <div className="bg-yellow-50 rounded-lg p-4">
+                  <h3 className="font-semibold text-yellow-800 mb-3">System Performance</h3>
+                  <div className="space-y-1 text-sm text-gray-600">
+                    <p>• System Size: {results.systemSize} kW</p>
+                    <p>• Annual Production: {results.annualProduction.toLocaleString()} kWh</p>
+                    <p>• First Year Savings: {formatCurrency(results.firstYearSavings)}</p>
+                    <p>• Payback Period: {results.paybackPeriod} years</p>
+                  </div>
+                </div>
+
+                {/* Environmental Impact */}
+                <div className="bg-green-50 rounded-lg p-4">
+                  <h3 className="font-semibold text-green-800 mb-3 flex items-center gap-2">
+                    <PiggyBank className="w-4 h-4" />
+                    Environmental Impact
+                  </h3>
+                  <div className="space-y-1 text-sm text-gray-600">
+                    <p>• Annual CO₂ Offset: {results.carbonOffsetPerYear} metric tons</p>
+                    <p>• {formData.timeFrame}-Year CO₂ Offset: {results.totalCarbonOffset} metric tons</p>
+                    <p>• Equivalent to planting {Math.round(results.totalCarbonOffset * 16)} trees</p>
+                  </div>
+                </div>
+
+                {/* Future Electricity Costs */}
+                <div className="bg-orange-50 rounded-lg p-4">
+                  <h3 className="font-semibold text-orange-800 mb-2">Without Solar</h3>
+                  <p className="text-sm text-gray-600">
+                    You'd pay <strong>{formatCurrency(results.totalElectricityBillWithoutSolar)}</strong> for electricity over {formData.timeFrame} years with rate increases.
+                  </p>
+                </div>
+
+                {/* CTA */}
                 <div className="bg-gradient-to-r from-orange-500 to-yellow-500 text-white rounded-lg p-4 text-center">
                   <h3 className="font-semibold mb-2">
                     {results.isProfitable 
@@ -535,6 +657,7 @@ const SolarROICalculator = () => {
           </div>
         </div>
 
+        {/* Disclaimer */}
         <div className="mt-8 bg-gray-100 rounded-lg p-4 text-sm text-gray-600">
           <p className="mb-2">
             <strong>Disclaimer:</strong> This calculator provides estimates based on average conditions, typical equipment performance, 
