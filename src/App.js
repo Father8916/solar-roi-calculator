@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Calculator, Sun, TrendingUp, User, DollarSign, Zap, AlertTriangle, CheckCircle, PiggyBank, MapPin, Globe } from 'lucide-react';
+import React, { useState } from 'react';
+import { Calculator, Sun, TrendingUp, User, DollarSign, Zap, AlertTriangle, CheckCircle, PiggyBank } from 'lucide-react';
 
 const SolarROICalculator = () => {
   const [step, setStep] = useState(1);
@@ -11,9 +11,11 @@ const SolarROICalculator = () => {
     zipCode: '',
     monthlyBill: '',
     electricityRate: '0.12',
+    annualUsage: '',
     systemSize: '',
     systemCost: '',
     downPayment: '',
+    financingRate: '6.5',
     location: 'average',
     roofType: 'south',
     timeFrame: '20',
@@ -21,23 +23,15 @@ const SolarROICalculator = () => {
   });
   const [results, setResults] = useState(null);
   const [showResults, setShowResults] = useState(false);
-  const [locationData, setLocationData] = useState({
-    isUSA: null,
-    detectedZip: null,
-    detectedState: null,
-    detectedCity: null
-  });
-  const [zipValidation, setZipValidation] = useState({
-    isValidating: false,
-    isValid: null
-  });
 
+  // Solar irradiance data (kWh/m²/day)
   const solarIrradiance = {
-    'high': 5.5,
-    'average': 4.2,
-    'low': 3.5,
+    'high': 5.5, // Southwest US
+    'average': 4.2, // Most of US  
+    'low': 3.5, // Northeast, Northwest
   };
 
+  // Roof orientation multipliers
   const roofMultipliers = {
     'south': 1.0,
     'southeast': 0.95,
@@ -52,70 +46,11 @@ const SolarROICalculator = () => {
       ...prev,
       [field]: value
     }));
-
-    if (field === 'zipCode' && value.length === 5) {
-      validateRealUSZipCode(value);
-    }
-  };
-
-  const validateEmail = (email) => {
-    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-    return emailRegex.test(email) && email.length >= 5;
-  };
-
-  const validateUSZipCode = (zipCode) => {
-    const zipRegex = /^\d{5}$/;
-    return zipRegex.test(zipCode);
-  };
-
-  const detectLocationAndValidateZip = async () => {
-    try {
-      const locationResponse = await fetch('https://ipapi.co/json/');
-      const locationData = await locationResponse.json();
-      
-      setLocationData({
-        isUSA: locationData.country_code === 'US',
-        detectedZip: locationData.postal,
-        detectedState: locationData.region,
-        detectedCity: locationData.city
-      });
-      
-      if (locationData.country_code === 'US' && !formData.zipCode) {
-        handleInputChange('zipCode', locationData.postal);
-      }
-    } catch (error) {
-      console.log('Location detection failed, proceeding anyway');
-    }
-  };
-
-  const validateRealUSZipCode = async (zipCode) => {
-    if (!zipCode || zipCode.length !== 5) {
-      setZipValidation({ isValidating: false, isValid: false });
-      return false;
-    }
-    
-    setZipValidation({ isValidating: true, isValid: null });
-    
-    try {
-      const response = await fetch(`https://api.zippopotam.us/us/${zipCode}`);
-      const isValid = response.ok;
-      setZipValidation({ isValidating: false, isValid });
-      return isValid;
-    } catch (error) {
-      const isValid = /^\d{5}$/.test(zipCode);
-      setZipValidation({ isValidating: false, isValid });
-      return isValid;
-    }
   };
 
   const validateStep1 = () => {
-    return formData.name.trim().length >= 2 && 
-           validateEmail(formData.email) && 
-           formData.phone.trim().length >= 10 && 
-           formData.address.trim().length >= 5 && 
-           validateUSZipCode(formData.zipCode) &&
-           zipValidation.isValid === true &&
-           locationData.isUSA !== false;
+    return formData.name.trim() && formData.email.trim() && formData.phone.trim() && 
+           formData.address.trim() && formData.zipCode.trim();
   };
 
   const validateStep2 = () => {
@@ -124,9 +59,9 @@ const SolarROICalculator = () => {
 
   const sendWebhook = async (leadData) => {
     try {
-      const webhookUrl = 'https://hook.us2.make.com/bthvgm9bsb6cjypl2j4fa6ma07b20eta';
+      const webhookUrl = 'https://your-webhook-url.com/solar-roi-leads';
       
-      await fetch(webhookUrl, {
+      const response = await fetch(webhookUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -134,14 +69,6 @@ const SolarROICalculator = () => {
         body: JSON.stringify({
           timestamp: new Date().toISOString(),
           leadSource: 'Solar ROI Calculator',
-          locationVerification: {
-            isUSA: locationData.isUSA,
-            detectedLocation: `${locationData.detectedCity}, ${locationData.detectedState}`,
-            detectedZip: locationData.detectedZip,
-            enteredZip: formData.zipCode,
-            zipMatches: locationData.detectedZip === formData.zipCode,
-            zipValidated: zipValidation.isValid
-          },
           contactInfo: {
             name: formData.name,
             email: formData.email,
@@ -151,13 +78,20 @@ const SolarROICalculator = () => {
           },
           energyData: {
             monthlyBill: formData.monthlyBill,
+            electricityRate: formData.electricityRate,
+            systemSize: formData.systemSize,
             systemCost: formData.systemCost,
+            financingRate: formData.financingRate,
             timeFrame: formData.timeFrame,
           },
           calculations: leadData,
           utmSource: window.location.search,
         }),
       });
+
+      if (!response.ok) {
+        console.error('Webhook failed:', response.status);
+      }
     } catch (error) {
       console.error('Webhook error:', error);
     }
@@ -167,64 +101,115 @@ const SolarROICalculator = () => {
     const monthlyBill = parseFloat(formData.monthlyBill);
     const systemCost = parseFloat(formData.systemCost);
     const downPayment = parseFloat(formData.downPayment) || systemCost;
+    const loanAmount = systemCost - downPayment;
     const electricityRate = parseFloat(formData.electricityRate);
     const timeFrame = parseFloat(formData.timeFrame);
     const utilityRateIncrease = parseFloat(formData.utilityRateIncrease) / 100;
+    const financingRate = parseFloat(formData.financingRate) / 100 / 12;
 
-    const systemSize = parseFloat(formData.systemSize) || (monthlyBill * 12) / (electricityRate * 1000 * 4.5);
+    // System specifications
+    const systemSize = parseFloat(formData.systemSize) || (monthlyBill * 12) / (electricityRate * 1000 * 4.5); // Estimate if not provided
     const peakSunHours = solarIrradiance[formData.location];
     const roofEfficiency = roofMultipliers[formData.roofType];
-    const systemEfficiency = 0.85;
+    const systemEfficiency = 0.85; // Account for inverter losses, shading, etc.
 
+    // Annual solar production
     const annualProduction = systemSize * peakSunHours * 365 * roofEfficiency * systemEfficiency;
     const firstYearSavings = annualProduction * electricityRate;
 
-    const federalTaxCredit = systemCost * 0.30;
+    // Federal and state incentives
+    const federalTaxCredit = systemCost * 0.30; // 30% federal tax credit
     const netSystemCost = systemCost - federalTaxCredit;
+    const actualOutOfPocket = downPayment - (downPayment * 0.30); // Tax credit on down payment
 
+    // Financing calculations
+    let monthlyLoanPayment = 0;
+    let totalInterestPaid = 0;
+    if (loanAmount > 0) {
+      const loanTermMonths = 20 * 12; // 20-year loan
+      monthlyLoanPayment = loanAmount * (financingRate * Math.pow(1 + financingRate, loanTermMonths)) / (Math.pow(1 + financingRate, loanTermMonths) - 1);
+      totalInterestPaid = (monthlyLoanPayment * loanTermMonths) - loanAmount;
+    }
+
+    // Calculate savings over time with utility rate increases
     let cumulativeSavings = 0;
-    let totalLifetimeSavings = 0;
+    let cumulativeCosts = actualOutOfPocket + totalInterestPaid;
     let breakEvenYear = 0;
+    let totalLifetimeSavings = 0;
+    let currentAnnualSavings = firstYearSavings;
 
     for (let year = 1; year <= timeFrame; year++) {
+      // Account for slight degradation of solar panels (0.5% per year)
       const systemDegradation = Math.pow(0.995, year - 1);
       const adjustedProduction = annualProduction * systemDegradation;
-      const currentYearSavings = adjustedProduction * electricityRate * Math.pow(1 + utilityRateIncrease, year - 1);
-      cumulativeSavings += currentYearSavings;
+      
+      // Current year savings with utility rate increases
+      currentAnnualSavings = adjustedProduction * electricityRate * Math.pow(1 + utilityRateIncrease, year - 1);
+      cumulativeSavings += currentAnnualSavings;
+      
+      // Add loan payments to costs (only for loan term)
+      if (year <= 20 && loanAmount > 0) {
+        cumulativeCosts += monthlyLoanPayment * 12;
+      }
 
-      if (cumulativeSavings >= netSystemCost && breakEvenYear === 0) {
+      // Find break-even point
+      if (cumulativeSavings >= cumulativeCosts && breakEvenYear === 0) {
         breakEvenYear = year;
       }
     }
 
-    totalLifetimeSavings = cumulativeSavings - netSystemCost;
+    totalLifetimeSavings = cumulativeSavings - cumulativeCosts;
 
-    const roi = (totalLifetimeSavings / netSystemCost) * 100;
+    // Calculate ROI
+    const totalInvestment = actualOutOfPocket + totalInterestPaid;
+    const roi = (totalLifetimeSavings / totalInvestment) * 100;
+    const annualizedROI = roi / timeFrame;
 
+    // Without solar projection (what they'll pay for electricity)
     let totalElectricityBillWithoutSolar = 0;
     for (let year = 1; year <= timeFrame; year++) {
       const yearlyBill = monthlyBill * 12 * Math.pow(1 + utilityRateIncrease, year - 1);
       totalElectricityBillWithoutSolar += yearlyBill;
     }
 
-    const carbonOffsetPerYear = annualProduction * 0.0004;
+    // Carbon offset calculation
+    const carbonOffsetPerYear = annualProduction * 0.0004; // metric tons CO2 per kWh
     const totalCarbonOffset = carbonOffsetPerYear * timeFrame;
 
     const calculationResults = {
+      // System details
       systemSize: Math.round(systemSize * 10) / 10,
       annualProduction: Math.round(annualProduction),
       systemCost: Math.round(systemCost),
       netSystemCost: Math.round(netSystemCost),
+      actualOutOfPocket: Math.round(actualOutOfPocket),
+      
+      // Savings and ROI
       firstYearSavings: Math.round(firstYearSavings),
       totalLifetimeSavings: Math.round(totalLifetimeSavings),
       totalElectricityBillWithoutSolar: Math.round(totalElectricityBillWithoutSolar),
+      cumulativeSavings: Math.round(cumulativeSavings),
+      
+      // Financial metrics
       roi: Math.round(roi * 10) / 10,
+      annualizedROI: Math.round(annualizedROI * 10) / 10,
       breakEvenYear,
       federalTaxCredit: Math.round(federalTaxCredit),
+      
+      // Financing
+      monthlyLoanPayment: Math.round(monthlyLoanPayment),
+      totalInterestPaid: Math.round(totalInterestPaid),
+      
+      // Environmental
       carbonOffsetPerYear: Math.round(carbonOffsetPerYear * 10) / 10,
       totalCarbonOffset: Math.round(totalCarbonOffset * 10) / 10,
+      
+      // Analysis
       isProfitable: totalLifetimeSavings > 0,
       paybackPeriod: breakEvenYear,
+      effectiveAnnualSavings: Math.round(totalLifetimeSavings / timeFrame),
+      
+      // Utility bill impact
       currentMonthlyBill: Math.round(monthlyBill),
       newMonthlyBill: Math.round(Math.max(0, monthlyBill - (firstYearSavings / 12))),
       monthlySavings: Math.round(Math.min(monthlyBill, firstYearSavings / 12)),
@@ -251,10 +236,6 @@ const SolarROICalculator = () => {
     }).format(amount);
   };
 
-  useEffect(() => {
-    detectLocationAndValidateZip();
-  }, []);
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-yellow-50 to-orange-50 p-6">
       <div className="max-w-5xl mx-auto">
@@ -269,34 +250,17 @@ const SolarROICalculator = () => {
         </div>
 
         <div className="grid lg:grid-cols-2 gap-8">
+          {/* Input Section */}
           <div className="bg-white rounded-xl shadow-lg p-6">
             {step === 1 ? (
               <>
                 <h2 className="text-2xl font-semibold mb-6 flex items-center gap-2">
                   <User className="text-orange-500" />
                   Your Information
-                  {locationData.isUSA && (
-                    <span className="text-green-600 text-sm ml-2 flex items-center gap-1">
-                      <Globe className="w-4 h-4" />
-                      US Verified
-                    </span>
-                  )}
                 </h2>
                 <p className="text-gray-600 mb-6">
                   Get your personalized solar ROI analysis in 2 simple steps
                 </p>
-
-                {locationData.isUSA === false && (
-                  <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-6">
-                    <div className="flex items-center gap-2 text-orange-800">
-                      <AlertTriangle className="w-5 h-5" />
-                      <p className="font-medium">Outside USA Detected</p>
-                    </div>
-                    <p className="text-orange-700 text-sm mt-1">
-                      This solar calculator is currently only available for US residents.
-                    </p>
-                  </div>
-                )}
 
                 <div className="space-y-6">
                   <div>
@@ -307,14 +271,9 @@ const SolarROICalculator = () => {
                       type="text"
                       value={formData.name}
                       onChange={(e) => handleInputChange('name', e.target.value)}
-                      className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent ${
-                        formData.name && formData.name.trim().length < 2 ? 'border-red-500' : 'border-gray-300'
-                      }`}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                       placeholder="Enter your full name"
                     />
-                    {formData.name && formData.name.trim().length < 2 && (
-                      <p className="text-red-500 text-sm mt-1">Please enter at least 2 characters</p>
-                    )}
                   </div>
 
                   <div>
@@ -325,14 +284,9 @@ const SolarROICalculator = () => {
                       type="email"
                       value={formData.email}
                       onChange={(e) => handleInputChange('email', e.target.value)}
-                      className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent ${
-                        formData.email && !validateEmail(formData.email) ? 'border-red-500' : 'border-gray-300'
-                      }`}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                       placeholder="your@email.com"
                     />
-                    {formData.email && !validateEmail(formData.email) && (
-                      <p className="text-red-500 text-sm mt-1">Please enter a valid email address</p>
-                    )}
                   </div>
 
                   <div>
@@ -343,14 +297,9 @@ const SolarROICalculator = () => {
                       type="tel"
                       value={formData.phone}
                       onChange={(e) => handleInputChange('phone', e.target.value)}
-                      className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent ${
-                        formData.phone && formData.phone.trim().length < 10 ? 'border-red-500' : 'border-gray-300'
-                      }`}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                       placeholder="(555) 123-4567"
                     />
-                    {formData.phone && formData.phone.trim().length < 10 && (
-                      <p className="text-red-500 text-sm mt-1">Please enter a valid phone number</p>
-                    )}
                   </div>
 
                   <div>
@@ -361,49 +310,23 @@ const SolarROICalculator = () => {
                       type="text"
                       value={formData.address}
                       onChange={(e) => handleInputChange('address', e.target.value)}
-                      className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent ${
-                        formData.address && formData.address.trim().length < 5 ? 'border-red-500' : 'border-gray-300'
-                      }`}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                       placeholder="123 Main Street, City, State"
                     />
-                    {formData.address && formData.address.trim().length < 5 && (
-                      <p className="text-red-500 text-sm mt-1">Please enter a complete address</p>
-                    )}
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
-                      <MapPin className="w-4 h-4" />
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
                       ZIP Code *
-                      {locationData.detectedZip && (
-                        <span className="text-blue-600 text-sm">
-                          (Detected: {locationData.detectedZip})
-                        </span>
-                      )}
                     </label>
                     <input
                       type="text"
                       value={formData.zipCode}
-                      onChange={(e) => handleInputChange('zipCode', e.target.value.replace(/\D/g, '').slice(0, 5))}
-                      className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent ${
-                        formData.zipCode && (!validateUSZipCode(formData.zipCode) || zipValidation.isValid === false) ? 'border-red-500' : 
-                        zipValidation.isValid === true ? 'border-green-500' : 'border-gray-300'
-                      }`}
+                      onChange={(e) => handleInputChange('zipCode', e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                       placeholder="12345"
                       maxLength="5"
                     />
-                    {zipValidation.isValidating && (
-                      <p className="text-blue-500 text-sm mt-1 flex items-center gap-1">
-                        <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-500"></div>
-                        Validating ZIP code...
-                      </p>
-                    )}
-                    {formData.zipCode && validateUSZipCode(formData.zipCode) && zipValidation.isValid === true && (
-                      <p className="text-green-500 text-sm mt-1">✓ Valid US ZIP code</p>
-                    )}
-                    {formData.zipCode && (zipValidation.isValid === false || !validateUSZipCode(formData.zipCode)) && (
-                      <p className="text-red-500 text-sm mt-1">Please enter a valid US ZIP code</p>
-                    )}
                   </div>
 
                   <button
@@ -478,6 +401,18 @@ const SolarROICalculator = () => {
                           onChange={(e) => handleInputChange('systemCost', e.target.value)}
                           className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                           placeholder="e.g., 25000"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Down Payment ($)
+                        </label>
+                        <input
+                          type="number"
+                          value={formData.downPayment}
+                          onChange={(e) => handleInputChange('downPayment', e.target.value)}
+                          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                          placeholder="Leave blank if paying cash"
                         />
                       </div>
                       <div>
@@ -574,6 +509,7 @@ const SolarROICalculator = () => {
             )}
           </div>
 
+          {/* Results Section */}
           <div className="bg-white rounded-xl shadow-lg p-6">
             <h2 className="text-2xl font-semibold mb-6 flex items-center gap-2">
               <TrendingUp className="text-green-500" />
@@ -587,6 +523,7 @@ const SolarROICalculator = () => {
               </div>
             ) : (
               <div className="space-y-6">
+                {/* ROI Declaration */}
                 <div className={`rounded-lg p-6 text-center ${results.isProfitable ? 'bg-green-50' : 'bg-red-50'}`}>
                   <div className="flex items-center justify-center mb-3">
                     {results.isProfitable ? (
@@ -614,6 +551,7 @@ const SolarROICalculator = () => {
                   )}
                 </div>
 
+                {/* Monthly Impact */}
                 <div className="bg-blue-50 rounded-lg p-4">
                   <h3 className="font-semibold text-blue-800 mb-3 flex items-center gap-2">
                     <Zap className="w-4 h-4" />
@@ -635,6 +573,7 @@ const SolarROICalculator = () => {
                   </div>
                 </div>
 
+                {/* Financial Summary */}
                 <div className="bg-green-50 rounded-lg p-4">
                   <h3 className="font-semibold text-green-800 mb-3 flex items-center gap-2">
                     <DollarSign className="w-4 h-4" />
@@ -662,6 +601,7 @@ const SolarROICalculator = () => {
                   </div>
                 </div>
 
+                {/* System Performance */}
                 <div className="bg-yellow-50 rounded-lg p-4">
                   <h3 className="font-semibold text-yellow-800 mb-3">System Performance</h3>
                   <div className="space-y-1 text-sm text-gray-600">
@@ -672,6 +612,7 @@ const SolarROICalculator = () => {
                   </div>
                 </div>
 
+                {/* Environmental Impact */}
                 <div className="bg-green-50 rounded-lg p-4">
                   <h3 className="font-semibold text-green-800 mb-3 flex items-center gap-2">
                     <PiggyBank className="w-4 h-4" />
@@ -684,6 +625,7 @@ const SolarROICalculator = () => {
                   </div>
                 </div>
 
+                {/* Future Electricity Costs */}
                 <div className="bg-orange-50 rounded-lg p-4">
                   <h3 className="font-semibold text-orange-800 mb-2">Without Solar</h3>
                   <p className="text-sm text-gray-600">
@@ -691,6 +633,7 @@ const SolarROICalculator = () => {
                   </p>
                 </div>
 
+                {/* CTA */}
                 <div className="bg-gradient-to-r from-orange-500 to-yellow-500 text-white rounded-lg p-4 text-center">
                   <h3 className="font-semibold mb-2">
                     {results.isProfitable 
@@ -714,6 +657,7 @@ const SolarROICalculator = () => {
           </div>
         </div>
 
+        {/* Disclaimer */}
         <div className="mt-8 bg-gray-100 rounded-lg p-4 text-sm text-gray-600">
           <p className="mb-2">
             <strong>Disclaimer:</strong> This calculator provides estimates based on average conditions, typical equipment performance, 
