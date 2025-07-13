@@ -25,14 +25,17 @@ const SolarROICalculator = () => {
   const [showResults, setShowResults] = useState(false);
 
   const [locationData, setLocationData] = useState({
-  isUSA: null,
-  detectedZip: null,
-  detectedState: null,
-  detectedCity: null
-});
- const [locationChecked, setLocationChecked] = useState(false);
- const [zipValidationStatus, setZipValidationStatus] = useState('');
-  
+    isUSA: null,
+    detectedZip: null,
+    detectedState: null,
+    detectedCity: null
+  });
+  const [locationChecked, setLocationChecked] = useState(false);
+  const [zipValidationStatus, setZipValidationStatus] = useState('');
+  // New: validation states for each step
+  const [isStep1Valid, setIsStep1Valid] = useState(false);
+  const [isStep2Valid, setIsStep2Valid] = useState(false);
+
   // Solar irradiance data (kWh/m²/day)
   const solarIrradiance = {
     'high': 5.5, // Southwest US
@@ -58,131 +61,126 @@ const SolarROICalculator = () => {
   };
 
   // Enhanced email validation for all valid emails
-const validateEmail = (email) => {
-  // Comprehensive email validation
-  const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
-  
-  if (!emailRegex.test(email) || email.length < 5) {
-    return false;
-  }
-  
-  // Common email providers (free and business)
-  const validProviders = [
-    // Free email providers
-    'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com', 
-    'icloud.com', 'protonmail.com', 'zoho.com', 'yandex.com', 'mail.com',
-    
-    // ISP email providers
-    'comcast.net', 'verizon.net', 'att.net', 'charter.net', 'cox.net', 
-    'earthlink.net', 'sbcglobal.net', 'roadrunner.com', 'bellsouth.net',
-    
-    // Business domains (basic validation - any .com, .org, .net, etc.)
-  ];
-  
-  const domain = email.split('@')[1]?.toLowerCase();
-  
-  // Allow known providers OR any valid business domain
-  return domain && (
-    validProviders.includes(domain) || 
-    /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(domain)
-  );
-};
-
-// Basic US ZIP code format validation
-const validateUSZipCode = (zipCode) => {
-  return /^\d{5}$/.test(zipCode);
-};
-
-// Location detection function
-const detectLocationAndValidateZip = async () => {
-  try {
-    const locationResponse = await fetch('https://ipapi.co/json/');
-    const locationInfo = await locationResponse.json();
-    
-    setLocationData({
-      isUSA: locationInfo.country_code === 'US',
-      detectedZip: locationInfo.postal,
-      detectedState: locationInfo.region,
-      detectedCity: locationInfo.city
-    });
-    
-    // Auto-fill ZIP if they're in US and haven't entered one
-    if (locationInfo.country_code === 'US' && !formData.zipCode && locationInfo.postal) {
-      handleInputChange('zipCode', locationInfo.postal);
-    }
-    
-    setLocationChecked(true);
-  } catch (error) {
-    console.log('Location detection failed, proceeding anyway');
-    setLocationChecked(true);
-  }
-};
-
-// Real ZIP code validation against database
-const validateRealUSZipCode = async (zipCode) => {
-  if (!zipCode || zipCode.length !== 5) {
-    setZipValidationStatus('invalid-format');
-    return false;
-  }
-  
-  setZipValidationStatus('checking');
-  
-  try {
-    const response = await fetch(`https://api.zippopotam.us/us/${zipCode}`);
-    if (response.ok) {
-      const data = await response.json();
-      setZipValidationStatus(`valid - ${data.places[0]['place name']}, ${data.places[0]['state abbreviation']}`);
-      return true;
-    } else {
-      setZipValidationStatus('invalid-zip');
-      return false;
-    }
-  } catch (error) {
-    // If API fails, fall back to basic validation
-    const isBasicValid = /^\d{5}$/.test(zipCode);
-    setZipValidationStatus(isBasicValid ? 'valid-format' : 'invalid-format');
-    return isBasicValid;
-  }
-};
-
-// Updated Step 1 validation
-const validateStep1 = async () => {
-  const basicValidation = 
-    formData.name.trim().length >= 2 && 
-    validateEmail(formData.email) && 
-    formData.phone.trim().length >= 10 && 
-    formData.address.trim().length >= 5 && 
-    formData.zipCode.length === 5;
-
-  if (!basicValidation) return false;
-  
-  // Check if ZIP code is real
-  const isRealZip = await validateRealUSZipCode(formData.zipCode);
-  return isRealZip;
-};;
-
-  const validateStep2 = () => {
-    return formData.monthlyBill && formData.systemCost;
+  const validateEmail = (email) => {
+    // Comprehensive email validation
+    const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+    if (!emailRegex.test(email) || email.length < 5) return false;
+    // Common email providers (free and business)
+    const validProviders = [
+      'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com', 
+      'icloud.com', 'protonmail.com', 'zoho.com', 'yandex.com', 'mail.com',
+      'comcast.net', 'verizon.net', 'att.net', 'charter.net', 'cox.net', 
+      'earthlink.net', 'sbcglobal.net', 'roadrunner.com', 'bellsouth.net'
+    ];
+    const domain = email.split('@')[1]?.toLowerCase();
+    return domain && (
+      validProviders.includes(domain) || 
+      /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(domain)
+    );
   };
 
-// Detect location when component loads
-useEffect(() => {
-  detectLocationAndValidateZip();
-}, []);
+  // Basic US ZIP code format validation
+  const validateUSZipCode = (zipCode) => /^\d{5}$/.test(zipCode);
 
-// Validate ZIP code when it changes
-useEffect(() => {
-  if (formData.zipCode.length === 5) {
-    validateRealUSZipCode(formData.zipCode);
-  } else {
-    setZipValidationStatus('');
-  }
-}, [formData.zipCode]);
-  
+  // Location detection function
+  const detectLocationAndValidateZip = async () => {
+    try {
+      const locationResponse = await fetch('https://ipapi.co/json/');
+      const locationInfo = await locationResponse.json();
+      setLocationData({
+        isUSA: locationInfo.country_code === 'US',
+        detectedZip: locationInfo.postal,
+        detectedState: locationInfo.region,
+        detectedCity: locationInfo.city
+      });
+      if (locationInfo.country_code === 'US' && !formData.zipCode && locationInfo.postal) {
+        handleInputChange('zipCode', locationInfo.postal);
+      }
+      setLocationChecked(true);
+    } catch (error) {
+      setLocationChecked(true);
+    }
+  };
+
+  // Real ZIP code validation against database
+  const validateRealUSZipCode = async (zipCode) => {
+    if (!zipCode || zipCode.length !== 5) {
+      setZipValidationStatus('invalid-format');
+      return false;
+    }
+    setZipValidationStatus('checking');
+    try {
+      const response = await fetch(`https://api.zippopotam.us/us/${zipCode}`);
+      if (response.ok) {
+        const data = await response.json();
+        setZipValidationStatus(`valid - ${data.places[0]['place name']}, ${data.places[0]['state abbreviation']}`);
+        return true;
+      } else {
+        setZipValidationStatus('invalid-zip');
+        return false;
+      }
+    } catch (error) {
+      const isBasicValid = /^\d{5}$/.test(zipCode);
+      setZipValidationStatus(isBasicValid ? 'valid-format' : 'invalid-format');
+      return isBasicValid;
+    }
+  };
+
+  // Synchronous validation for Step 1 (UI state)
+  const syncValidateStep1 = () => (
+    formData.name.trim().length >= 2 &&
+    validateEmail(formData.email) &&
+    formData.phone.trim().length >= 10 &&
+    formData.address.trim().length >= 5 &&
+    formData.zipCode.length === 5 &&
+    (zipValidationStatus.startsWith('valid') || zipValidationStatus === 'valid-format')
+  );
+
+  // Synchronous validation for Step 2 (UI state)
+  const syncValidateStep2 = () => !!(formData.monthlyBill && formData.systemCost);
+
+  // Validate Step 1 (API, async)
+  const validateStep1 = async () => {
+    const basicValidation = 
+      formData.name.trim().length >= 2 && 
+      validateEmail(formData.email) && 
+      formData.phone.trim().length >= 10 && 
+      formData.address.trim().length >= 5 && 
+      formData.zipCode.length === 5;
+    if (!basicValidation) return false;
+    const isRealZip = await validateRealUSZipCode(formData.zipCode);
+    return isRealZip;
+  };
+
+  // Update validation state on input change
+  useEffect(() => {
+    setIsStep1Valid(syncValidateStep1());
+  }, [formData, zipValidationStatus]);
+
+  useEffect(() => {
+    setIsStep2Valid(syncValidateStep2());
+  }, [formData.monthlyBill, formData.systemCost]);
+
+  // Detect location when component loads
+  useEffect(() => {
+    detectLocationAndValidateZip();
+    // eslint-disable-next-line
+  }, []);
+
+  // Validate ZIP code when it changes
+  useEffect(() => {
+    if (formData.zipCode.length === 5) {
+      validateRealUSZipCode(formData.zipCode);
+    } else {
+      setZipValidationStatus('');
+    }
+    // eslint-disable-next-line
+  }, [formData.zipCode]);
+
   const sendWebhook = async (leadData) => {
     try {
       const webhookUrl = 'https://hook.us2.make.com/bthvgm9bsb6cjypl2j4fa6ma07b20eta';
-      
+      const utmSource = typeof window !== 'undefined' ? window.location.search : '';
       const response = await fetch(webhookUrl, {
         method: 'POST',
         headers: {
@@ -207,10 +205,9 @@ useEffect(() => {
             timeFrame: formData.timeFrame,
           },
           calculations: leadData,
-          utmSource: window.location.search,
+          utmSource,
         }),
       });
-
       if (!response.ok) {
         console.error('Webhook failed:', response.status);
       }
@@ -230,25 +227,25 @@ useEffect(() => {
     const financingRate = parseFloat(formData.financingRate) / 100 / 12;
 
     // System specifications
-    const systemSize = parseFloat(formData.systemSize) || (monthlyBill * 12) / (electricityRate * 1000 * 4.5); // Estimate if not provided
+    const systemSize = parseFloat(formData.systemSize) || (monthlyBill * 12) / (electricityRate * 1000 * 4.5);
     const peakSunHours = solarIrradiance[formData.location];
     const roofEfficiency = roofMultipliers[formData.roofType];
-    const systemEfficiency = 0.85; // Account for inverter losses, shading, etc.
+    const systemEfficiency = 0.85;
 
     // Annual solar production
     const annualProduction = systemSize * peakSunHours * 365 * roofEfficiency * systemEfficiency;
     const firstYearSavings = annualProduction * electricityRate;
 
     // Federal and state incentives
-    const federalTaxCredit = systemCost * 0.30; // 30% federal tax credit
+    const federalTaxCredit = systemCost * 0.30;
     const netSystemCost = systemCost - federalTaxCredit;
-    const actualOutOfPocket = downPayment - (downPayment * 0.30); // Tax credit on down payment
+    const actualOutOfPocket = downPayment - (downPayment * 0.30);
 
     // Financing calculations
     let monthlyLoanPayment = 0;
     let totalInterestPaid = 0;
     if (loanAmount > 0) {
-      const loanTermMonths = 20 * 12; // 20-year loan
+      const loanTermMonths = 20 * 12;
       monthlyLoanPayment = loanAmount * (financingRate * Math.pow(1 + financingRate, loanTermMonths)) / (Math.pow(1 + financingRate, loanTermMonths) - 1);
       totalInterestPaid = (monthlyLoanPayment * loanTermMonths) - loanAmount;
     }
@@ -261,77 +258,53 @@ useEffect(() => {
     let currentAnnualSavings = firstYearSavings;
 
     for (let year = 1; year <= timeFrame; year++) {
-      // Account for slight degradation of solar panels (0.5% per year)
       const systemDegradation = Math.pow(0.995, year - 1);
       const adjustedProduction = annualProduction * systemDegradation;
-      
-      // Current year savings with utility rate increases
       currentAnnualSavings = adjustedProduction * electricityRate * Math.pow(1 + utilityRateIncrease, year - 1);
       cumulativeSavings += currentAnnualSavings;
-      
-      // Add loan payments to costs (only for loan term)
       if (year <= 20 && loanAmount > 0) {
         cumulativeCosts += monthlyLoanPayment * 12;
       }
-
-      // Find break-even point
       if (cumulativeSavings >= cumulativeCosts && breakEvenYear === 0) {
         breakEvenYear = year;
       }
     }
 
     totalLifetimeSavings = cumulativeSavings - cumulativeCosts;
-
-    // Calculate ROI
     const totalInvestment = actualOutOfPocket + totalInterestPaid;
     const roi = (totalLifetimeSavings / totalInvestment) * 100;
     const annualizedROI = roi / timeFrame;
 
-    // Without solar projection (what they'll pay for electricity)
     let totalElectricityBillWithoutSolar = 0;
     for (let year = 1; year <= timeFrame; year++) {
       const yearlyBill = monthlyBill * 12 * Math.pow(1 + utilityRateIncrease, year - 1);
       totalElectricityBillWithoutSolar += yearlyBill;
     }
 
-    // Carbon offset calculation
-    const carbonOffsetPerYear = annualProduction * 0.0004; // metric tons CO2 per kWh
+    const carbonOffsetPerYear = annualProduction * 0.0004;
     const totalCarbonOffset = carbonOffsetPerYear * timeFrame;
 
     const calculationResults = {
-      // System details
       systemSize: Math.round(systemSize * 10) / 10,
       annualProduction: Math.round(annualProduction),
       systemCost: Math.round(systemCost),
       netSystemCost: Math.round(netSystemCost),
       actualOutOfPocket: Math.round(actualOutOfPocket),
-      
-      // Savings and ROI
       firstYearSavings: Math.round(firstYearSavings),
       totalLifetimeSavings: Math.round(totalLifetimeSavings),
       totalElectricityBillWithoutSolar: Math.round(totalElectricityBillWithoutSolar),
       cumulativeSavings: Math.round(cumulativeSavings),
-      
-      // Financial metrics
       roi: Math.round(roi * 10) / 10,
       annualizedROI: Math.round(annualizedROI * 10) / 10,
       breakEvenYear,
       federalTaxCredit: Math.round(federalTaxCredit),
-      
-      // Financing
       monthlyLoanPayment: Math.round(monthlyLoanPayment),
       totalInterestPaid: Math.round(totalInterestPaid),
-      
-      // Environmental
       carbonOffsetPerYear: Math.round(carbonOffsetPerYear * 10) / 10,
       totalCarbonOffset: Math.round(totalCarbonOffset * 10) / 10,
-      
-      // Analysis
       isProfitable: totalLifetimeSavings > 0,
       paybackPeriod: breakEvenYear,
       effectiveAnnualSavings: Math.round(totalLifetimeSavings / timeFrame),
-      
-      // Utility bill impact
       currentMonthlyBill: Math.round(monthlyBill),
       newMonthlyBill: Math.round(Math.max(0, monthlyBill - (firstYearSavings / 12))),
       monthlySavings: Math.round(Math.min(monthlyBill, firstYearSavings / 12)),
@@ -342,25 +315,24 @@ useEffect(() => {
     await sendWebhook(calculationResults);
   };
 
-   const handleNextStep = async () => {
-   if (step === 1) {
-     // Show loading state
-     const button = document.querySelector('button[type="submit"]') || document.querySelector('button');
-     const originalText = button ? button.textContent : '';
-     if (button) button.textContent = 'Validating...';
-    
-     const isValid = await validateStep1();
-    
-     if (button) button.textContent = originalText;
-    
-     if (isValid) {
-       setStep(2);
-     } else {
-       alert('Please ensure all fields are valid:\n- Real email address\n- Valid US ZIP code\n- Complete information');
-     }
-   } else if (step === 2 && validateStep2()) {
-     calculateSolarROI();
-   }
+  const handleNextStep = async () => {
+    if (step === 1) {
+      const button = document.querySelector('button[type="submit"]') || document.querySelector('button');
+      const originalText = button ? button.textContent : '';
+      if (button) button.textContent = 'Validating...';
+
+      const isValid = await validateStep1();
+
+      if (button) button.textContent = originalText;
+
+      if (isValid) {
+        setStep(2);
+      } else {
+        alert('Please ensure all fields are valid:\n- Real email address\n- Valid US ZIP code\n- Complete information');
+      }
+    } else if (step === 2 && isStep2Valid) {
+      calculateSolarROI();
+    }
   };
 
   const formatCurrency = (amount) => {
@@ -412,25 +384,25 @@ useEffect(() => {
                   </div>
 
                   <div>
-                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                     Email Address *
-                   </label>
-                   <input
-                    type="email"
-                     value={formData.email}
-                    onChange={(e) => handleInputChange('email', e.target.value)}
-                    className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent ${
-                    formData.email && !validateEmail(formData.email) ? 'border-red-500' : 'border-gray-300'
-                 }`}
-                    placeholder="your@email.com"
-                   />
-                   {formData.email && !validateEmail(formData.email) && (
-                   <p className="text-red-500 text-sm mt-1">Please enter a valid email address</p>
-                 )}
-                  {formData.email && validateEmail(formData.email) && (
-                 <p className="text-green-500 text-sm mt-1">✓ Valid email</p>
-                   )}
-                </div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Email Address *
+                    </label>
+                    <input
+                      type="email"
+                      value={formData.email}
+                      onChange={(e) => handleInputChange('email', e.target.value)}
+                      className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent ${
+                        formData.email && !validateEmail(formData.email) ? 'border-red-500' : 'border-gray-300'
+                      }`}
+                      placeholder="your@email.com"
+                    />
+                    {formData.email && !validateEmail(formData.email) && (
+                      <p className="text-red-500 text-sm mt-1">Please enter a valid email address</p>
+                    )}
+                    {formData.email && validateEmail(formData.email) && (
+                      <p className="text-green-500 text-sm mt-1">✓ Valid email</p>
+                    )}
+                  </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -459,55 +431,52 @@ useEffect(() => {
                   </div>
 
                   <div>
-                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    ZIP Code *
-                    {locationData.isUSA && locationData.detectedZip && (
-                   <span className="text-green-600 text-sm ml-2">
-                   (Detected: {locationData.detectedZip})
-                   </span>
-                 )}
-                   </label>
-                   <input
-                   type="text"
-                   value={formData.zipCode}
-                   onChange={(e) => handleInputChange('zipCode', e.target.value.replace(/\D/g, '').slice(0, 5))}
-                   className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent ${
-                  zipValidationStatus === 'invalid-zip' || zipValidationStatus === 'invalid-format' ? 'border-red-500' : 
-                  zipValidationStatus.startsWith('valid') ? 'border-green-500' : 'border-gray-300'
-               }`}
-                  placeholder="12345"
-                  maxLength="5"
-                />
-  
-                {/* Location warning for non-US users */}
-               {locationData.isUSA === false && (
-             <p className="text-orange-500 text-sm mt-1">
-               ⚠️ This calculator is currently only available for US residents
-             </p>
-              )}
-  
-             {/* ZIP validation status */}
-             {zipValidationStatus === 'checking' && (
-             <p className="text-blue-500 text-sm mt-1">🔍 Validating ZIP code...</p>
-             )}
-             {zipValidationStatus === 'invalid-zip' && (
-             <p className="text-red-500 text-sm mt-1">❌ Invalid ZIP code - please enter a real US ZIP</p>
-             )}
-             {zipValidationStatus === 'invalid-format' && (
-             <p className="text-red-500 text-sm mt-1">❌ Please enter a 5-digit ZIP code</p>
-            )}
-             {zipValidationStatus.startsWith('valid -') && (
-             <p className="text-green-500 text-sm mt-1">✓ {zipValidationStatus}</p>
-           )}
-            {zipValidationStatus === 'valid-format' && (
-            <p className="text-green-500 text-sm mt-1">✓ Valid ZIP format</p>
-             )}
-           </div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      ZIP Code *
+                      {locationData.isUSA && locationData.detectedZip && (
+                        <span className="text-green-600 text-sm ml-2">
+                          (Detected: {locationData.detectedZip})
+                        </span>
+                      )}
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.zipCode}
+                      onChange={(e) => handleInputChange('zipCode', e.target.value.replace(/\D/g, '').slice(0, 5))}
+                      className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent ${
+                        zipValidationStatus === 'invalid-zip' || zipValidationStatus === 'invalid-format' ? 'border-red-500' : 
+                        zipValidationStatus.startsWith('valid') ? 'border-green-500' : 'border-gray-300'
+                      }`}
+                      placeholder="12345"
+                      maxLength="5"
+                    />
+                    {locationData.isUSA === false && (
+                      <p className="text-orange-500 text-sm mt-1">
+                        ⚠️ This calculator is currently only available for US residents
+                      </p>
+                    )}
+                    {zipValidationStatus === 'checking' && (
+                      <p className="text-blue-500 text-sm mt-1">🔍 Validating ZIP code...</p>
+                    )}
+                    {zipValidationStatus === 'invalid-zip' && (
+                      <p className="text-red-500 text-sm mt-1">❌ Invalid ZIP code - please enter a real US ZIP</p>
+                    )}
+                    {zipValidationStatus === 'invalid-format' && (
+                      <p className="text-red-500 text-sm mt-1">❌ Please enter a 5-digit ZIP code</p>
+                    )}
+                    {zipValidationStatus.startsWith('valid -') && (
+                      <p className="text-green-500 text-sm mt-1">✓ {zipValidationStatus}</p>
+                    )}
+                    {zipValidationStatus === 'valid-format' && (
+                      <p className="text-green-500 text-sm mt-1">✓ Valid ZIP format</p>
+                    )}
+                  </div>
 
                   <button
                     onClick={handleNextStep}
-                    disabled={!validateStep1()}
-                    className="w-full bg-gradient-to-r from-orange-500 to-yellow-500 text-white py-3 px-6 rounded-lg font-semibold hover:from-orange-600 hover:to-yellow-600 transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                    disabled={!isStep1Valid}
+                    className="w-full bg-gradient-to-r from-orange-500 to-yellow-500 text-white py-3 px-6 rounded-lg font-semibold hover:from-orange-600 hover:to-yellow-600 transition-all duration-300"
+                    type="submit"
                   >
                     Continue to Energy Details
                   </button>
@@ -674,8 +643,8 @@ useEffect(() => {
 
                   <button
                     onClick={handleNextStep}
-                    disabled={!validateStep2()}
-                    className="w-full bg-gradient-to-r from-orange-500 to-yellow-500 text-white py-3 px-6 rounded-lg font-semibold hover:from-orange-600 hover:to-yellow-600 transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                    disabled={!isStep2Valid}
+                    className="w-full bg-gradient-to-r from-orange-500 to-yellow-500 text-white py-3 px-6 rounded-lg font-semibold hover:from-orange-600 hover:to-yellow-600 transition-all duration-300"
                   >
                     Calculate My Solar ROI
                   </button>
