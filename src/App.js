@@ -1,7 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import { Calculator, Sun, TrendingUp, User, DollarSign, Zap, AlertTriangle, CheckCircle, PiggyBank } from 'lucide-react';
-
-// ... Keep this part as is
 
 const SolarROICalculator = () => {
   const [step, setStep] = useState(1);
@@ -26,135 +24,43 @@ const SolarROICalculator = () => {
   const [results, setResults] = useState(null);
   const [showResults, setShowResults] = useState(false);
 
-  const [locationData, setLocationData] = useState({
-    isUSA: null,
-    detectedZip: null,
-    detectedState: null,
-    detectedCity: null
-  });
-  const [zipValidationStatus, setZipValidationStatus] = useState('');
-  const [isStep1Valid, setIsStep1Valid] = useState(false);
-  const [isStep2Valid, setIsStep2Valid] = useState(false);
+  // Solar irradiance data (kWh/m²/day)
+  const solarIrradiance = {
+    'high': 5.5, // Southwest US
+    'average': 4.2, // Most of US  
+    'low': 3.5, // Northeast, Northwest
+  };
 
-  const solarIrradiance = { high: 5.5, average: 4.2, low: 3.5 };
+  // Roof orientation multipliers
   const roofMultipliers = {
-    south: 1.0,
-    southeast: 0.95,
-    southwest: 0.95,
-    east: 0.85,
-    west: 0.85,
-    north: 0.6,
+    'south': 1.0,
+    'southeast': 0.95,
+    'southwest': 0.95,
+    'east': 0.85,
+    'west': 0.85,
+    'north': 0.6,
   };
 
   const handleInputChange = (field, value) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+    setFormData(prev => ({
+      ...prev,
+      [field]: value
+    }));
   };
 
-  const validateEmail = (email) => {
-    const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z]{2,})+$/;
-    if (!emailRegex.test(email) || email.length < 5) return false;
-    const domain = email.split('@')[1]?.toLowerCase();
-    const validProviders = [
-      'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com',
-      'icloud.com', 'protonmail.com', 'zoho.com', 'yandex.com', 'mail.com',
-      'comcast.net', 'verizon.net', 'att.net', 'charter.net', 'cox.net',
-      'earthlink.net', 'sbcglobal.net', 'roadrunner.com', 'bellsouth.net'
-    ];
-    return domain && (validProviders.includes(domain) || /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(domain));
+  const validateStep1 = () => {
+    return formData.name.trim() && formData.email.trim() && formData.phone.trim() && 
+           formData.address.trim() && formData.zipCode.trim();
   };
 
-  const detectLocationAndValidateZip = async () => {
-    try {
-      const res = await fetch('https://ipapi.co/json/');
-      const info = await res.json();
-      setLocationData({
-        isUSA: info.country_code === 'US',
-        detectedZip: info.postal,
-        detectedState: info.region,
-        detectedCity: info.city
-      });
-      if (info.country_code === 'US' && !formData.zipCode && info.postal) {
-        handleInputChange('zipCode', info.postal);
-      }
-    } catch (err) {}
+  const validateStep2 = () => {
+    return formData.monthlyBill && formData.systemCost;
   };
-
-  const validateRealUSZipCode = async (zip) => {
-    if (!zip || zip.length !== 5) {
-      setZipValidationStatus('invalid-format');
-      return false;
-    }
-    setZipValidationStatus('checking');
-    try {
-      const res = await fetch(`https://api.zippopotam.us/us/${zip}`);
-      if (res.ok) {
-        const data = await res.json();
-        setZipValidationStatus(`valid - ${data.places[0]['place name']}, ${data.places[0]['state abbreviation']}`);
-        return true;
-      } else {
-        setZipValidationStatus('invalid-zip');
-        return false;
-      }
-    } catch (err) {
-      const basic = /^\d{5}$/.test(zip);
-      setZipValidationStatus(basic ? 'valid-format' : 'invalid-format');
-      return basic;
-    }
-  };
-
-  // ✅ useCallback FIXED HOOKS (ESLint safe!)
-  const syncValidateStep1 = useCallback(() => {
-    return (
-      formData.name.trim().length >= 2 &&
-      validateEmail(formData.email) &&
-      formData.phone.trim().length >= 10 &&
-      formData.address.trim().length >= 5 &&
-      formData.zipCode.length === 5 &&
-      (zipValidationStatus.startsWith('valid') || zipValidationStatus === 'valid-format')
-    );
-  }, [formData, zipValidationStatus]);
-
-  const syncValidateStep2 = useCallback(() => {
-    return !!(formData.monthlyBill && formData.systemCost);
-  }, [formData.monthlyBill, formData.systemCost]);
-
-  const validateStep1 = async () => {
-    const basicValid =
-      formData.name.trim().length >= 2 &&
-      validateEmail(formData.email) &&
-      formData.phone.trim().length >= 10 &&
-      formData.address.trim().length >= 5 &&
-      formData.zipCode.length === 5;
-    if (!basicValid) return false;
-    const isRealZip = await validateRealUSZipCode(formData.zipCode);
-    return isRealZip;
-  };
-
-  // ✅ Hook dependencies fixed
-  useEffect(() => {
-    setIsStep1Valid(syncValidateStep1());
-  }, [syncValidateStep1]);
-
-  useEffect(() => {
-    setIsStep2Valid(syncValidateStep2());
-  }, [syncValidateStep2]);
-
-  useEffect(() => {
-    detectLocationAndValidateZip();
-  }, []);
-
-  useEffect(() => {
-    if (formData.zipCode.length === 5) {
-      validateRealUSZipCode(formData.zipCode);
-    } else {
-      setZipValidationStatus('');
-    }
-  }, [formData.zipCode]);
 
   const sendWebhook = async (leadData) => {
     try {
       const webhookUrl = 'https://hook.us2.make.com/bthvgm9bsb6cjypl2j4fa6ma07b20eta';
-      const utmSource = typeof window !== 'undefined' ? window.location.search : '';
+      
       const response = await fetch(webhookUrl, {
         method: 'POST',
         headers: {
@@ -179,9 +85,10 @@ const SolarROICalculator = () => {
             timeFrame: formData.timeFrame,
           },
           calculations: leadData,
-          utmSource,
+          utmSource: window.location.search,
         }),
       });
+
       if (!response.ok) {
         console.error('Webhook failed:', response.status);
       }
@@ -201,25 +108,25 @@ const SolarROICalculator = () => {
     const financingRate = parseFloat(formData.financingRate) / 100 / 12;
 
     // System specifications
-    const systemSize = parseFloat(formData.systemSize) || (monthlyBill * 12) / (electricityRate * 1000 * 4.5);
+    const systemSize = parseFloat(formData.systemSize) || (monthlyBill * 12) / (electricityRate * 1000 * 4.5); // Estimate if not provided
     const peakSunHours = solarIrradiance[formData.location];
     const roofEfficiency = roofMultipliers[formData.roofType];
-    const systemEfficiency = 0.85;
+    const systemEfficiency = 0.85; // Account for inverter losses, shading, etc.
 
     // Annual solar production
     const annualProduction = systemSize * peakSunHours * 365 * roofEfficiency * systemEfficiency;
     const firstYearSavings = annualProduction * electricityRate;
 
     // Federal and state incentives
-    const federalTaxCredit = systemCost * 0.30;
+    const federalTaxCredit = systemCost * 0.30; // 30% federal tax credit
     const netSystemCost = systemCost - federalTaxCredit;
-    const actualOutOfPocket = downPayment - (downPayment * 0.30);
+    const actualOutOfPocket = downPayment - (downPayment * 0.30); // Tax credit on down payment
 
     // Financing calculations
     let monthlyLoanPayment = 0;
     let totalInterestPaid = 0;
     if (loanAmount > 0) {
-      const loanTermMonths = 20 * 12;
+      const loanTermMonths = 20 * 12; // 20-year loan
       monthlyLoanPayment = loanAmount * (financingRate * Math.pow(1 + financingRate, loanTermMonths)) / (Math.pow(1 + financingRate, loanTermMonths) - 1);
       totalInterestPaid = (monthlyLoanPayment * loanTermMonths) - loanAmount;
     }
@@ -232,53 +139,77 @@ const SolarROICalculator = () => {
     let currentAnnualSavings = firstYearSavings;
 
     for (let year = 1; year <= timeFrame; year++) {
+      // Account for slight degradation of solar panels (0.5% per year)
       const systemDegradation = Math.pow(0.995, year - 1);
       const adjustedProduction = annualProduction * systemDegradation;
+      
+      // Current year savings with utility rate increases
       currentAnnualSavings = adjustedProduction * electricityRate * Math.pow(1 + utilityRateIncrease, year - 1);
       cumulativeSavings += currentAnnualSavings;
+      
+      // Add loan payments to costs (only for loan term)
       if (year <= 20 && loanAmount > 0) {
         cumulativeCosts += monthlyLoanPayment * 12;
       }
+
+      // Find break-even point
       if (cumulativeSavings >= cumulativeCosts && breakEvenYear === 0) {
         breakEvenYear = year;
       }
     }
 
     totalLifetimeSavings = cumulativeSavings - cumulativeCosts;
+
+    // Calculate ROI
     const totalInvestment = actualOutOfPocket + totalInterestPaid;
     const roi = (totalLifetimeSavings / totalInvestment) * 100;
     const annualizedROI = roi / timeFrame;
 
+    // Without solar projection (what they'll pay for electricity)
     let totalElectricityBillWithoutSolar = 0;
     for (let year = 1; year <= timeFrame; year++) {
       const yearlyBill = monthlyBill * 12 * Math.pow(1 + utilityRateIncrease, year - 1);
       totalElectricityBillWithoutSolar += yearlyBill;
     }
 
-    const carbonOffsetPerYear = annualProduction * 0.0004;
+    // Carbon offset calculation
+    const carbonOffsetPerYear = annualProduction * 0.0004; // metric tons CO2 per kWh
     const totalCarbonOffset = carbonOffsetPerYear * timeFrame;
 
     const calculationResults = {
+      // System details
       systemSize: Math.round(systemSize * 10) / 10,
       annualProduction: Math.round(annualProduction),
       systemCost: Math.round(systemCost),
       netSystemCost: Math.round(netSystemCost),
       actualOutOfPocket: Math.round(actualOutOfPocket),
+      
+      // Savings and ROI
       firstYearSavings: Math.round(firstYearSavings),
       totalLifetimeSavings: Math.round(totalLifetimeSavings),
       totalElectricityBillWithoutSolar: Math.round(totalElectricityBillWithoutSolar),
       cumulativeSavings: Math.round(cumulativeSavings),
+      
+      // Financial metrics
       roi: Math.round(roi * 10) / 10,
       annualizedROI: Math.round(annualizedROI * 10) / 10,
       breakEvenYear,
       federalTaxCredit: Math.round(federalTaxCredit),
+      
+      // Financing
       monthlyLoanPayment: Math.round(monthlyLoanPayment),
       totalInterestPaid: Math.round(totalInterestPaid),
+      
+      // Environmental
       carbonOffsetPerYear: Math.round(carbonOffsetPerYear * 10) / 10,
       totalCarbonOffset: Math.round(totalCarbonOffset * 10) / 10,
+      
+      // Analysis
       isProfitable: totalLifetimeSavings > 0,
       paybackPeriod: breakEvenYear,
       effectiveAnnualSavings: Math.round(totalLifetimeSavings / timeFrame),
+      
+      // Utility bill impact
       currentMonthlyBill: Math.round(monthlyBill),
       newMonthlyBill: Math.round(Math.max(0, monthlyBill - (firstYearSavings / 12))),
       monthlySavings: Math.round(Math.min(monthlyBill, firstYearSavings / 12)),
@@ -289,22 +220,10 @@ const SolarROICalculator = () => {
     await sendWebhook(calculationResults);
   };
 
-  const handleNextStep = async () => {
-    if (step === 1) {
-      const button = document.querySelector('button[type="submit"]') || document.querySelector('button');
-      const originalText = button ? button.textContent : '';
-      if (button) button.textContent = 'Validating...';
-
-      const isValid = await validateStep1();
-
-      if (button) button.textContent = originalText;
-
-      if (isValid) {
-        setStep(2);
-      } else {
-        alert('Please ensure all fields are valid:\n- Real email address\n- Valid US ZIP code\n- Complete information');
-      }
-    } else if (step === 2 && isStep2Valid) {
+  const handleNextStep = () => {
+    if (step === 1 && validateStep1()) {
+      setStep(2);
+    } else if (step === 2 && validateStep2()) {
       calculateSolarROI();
     }
   };
@@ -365,17 +284,9 @@ const SolarROICalculator = () => {
                       type="email"
                       value={formData.email}
                       onChange={(e) => handleInputChange('email', e.target.value)}
-                      className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent ${
-                        formData.email && !validateEmail(formData.email) ? 'border-red-500' : 'border-gray-300'
-                      }`}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                       placeholder="your@email.com"
                     />
-                    {formData.email && !validateEmail(formData.email) && (
-                      <p className="text-red-500 text-sm mt-1">Please enter a valid email address</p>
-                    )}
-                    {formData.email && validateEmail(formData.email) && (
-                      <p className="text-green-500 text-sm mt-1">✓ Valid email</p>
-                    )}
                   </div>
 
                   <div>
@@ -407,50 +318,21 @@ const SolarROICalculator = () => {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       ZIP Code *
-                      {locationData.isUSA && locationData.detectedZip && (
-                        <span className="text-green-600 text-sm ml-2">
-                          (Detected: {locationData.detectedZip})
-                        </span>
-                      )}
                     </label>
                     <input
                       type="text"
                       value={formData.zipCode}
-                      onChange={(e) => handleInputChange('zipCode', e.target.value.replace(/\D/g, '').slice(0, 5))}
-                      className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent ${
-                        zipValidationStatus === 'invalid-zip' || zipValidationStatus === 'invalid-format' ? 'border-red-500' : 
-                        zipValidationStatus.startsWith('valid') ? 'border-green-500' : 'border-gray-300'
-                      }`}
+                      onChange={(e) => handleInputChange('zipCode', e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                       placeholder="12345"
                       maxLength="5"
                     />
-                    {locationData.isUSA === false && (
-                      <p className="text-orange-500 text-sm mt-1">
-                        ⚠️ This calculator is currently only available for US residents
-                      </p>
-                    )}
-                    {zipValidationStatus === 'checking' && (
-                      <p className="text-blue-500 text-sm mt-1">🔍 Validating ZIP code...</p>
-                    )}
-                    {zipValidationStatus === 'invalid-zip' && (
-                      <p className="text-red-500 text-sm mt-1">❌ Invalid ZIP code - please enter a real US ZIP</p>
-                    )}
-                    {zipValidationStatus === 'invalid-format' && (
-                      <p className="text-red-500 text-sm mt-1">❌ Please enter a 5-digit ZIP code</p>
-                    )}
-                    {zipValidationStatus.startsWith('valid -') && (
-                      <p className="text-green-500 text-sm mt-1">✓ {zipValidationStatus}</p>
-                    )}
-                    {zipValidationStatus === 'valid-format' && (
-                      <p className="text-green-500 text-sm mt-1">✓ Valid ZIP format</p>
-                    )}
                   </div>
 
                   <button
                     onClick={handleNextStep}
-                    disabled={!isStep1Valid}
-                    className="w-full bg-gradient-to-r from-orange-500 to-yellow-500 text-white py-3 px-6 rounded-lg font-semibold hover:from-orange-600 hover:to-yellow-600 transition-all duration-300"
-                    type="submit"
+                    disabled={!validateStep1()}
+                    className="w-full bg-gradient-to-r from-orange-500 to-yellow-500 text-white py-3 px-6 rounded-lg font-semibold hover:from-orange-600 hover:to-yellow-600 transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                   >
                     Continue to Energy Details
                   </button>
@@ -617,8 +499,8 @@ const SolarROICalculator = () => {
 
                   <button
                     onClick={handleNextStep}
-                    disabled={!isStep2Valid}
-                    className="w-full bg-gradient-to-r from-orange-500 to-yellow-500 text-white py-3 px-6 rounded-lg font-semibold hover:from-orange-600 hover:to-yellow-600 transition-all duration-300"
+                    disabled={!validateStep2()}
+                    className="w-full bg-gradient-to-r from-orange-500 to-yellow-500 text-white py-3 px-6 rounded-lg font-semibold hover:from-orange-600 hover:to-yellow-600 transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                   >
                     Calculate My Solar ROI
                   </button>
