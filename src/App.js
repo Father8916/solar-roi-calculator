@@ -59,7 +59,7 @@ const SolarROICalculator = () => {
 
   const sendWebhook = async (leadData) => {
     try {
-      const webhookUrl = 'https://your-webhook-url.com/solar-roi-leads';
+      const webhookUrl = 'https://hook.us2.make.com/bthvgm9bsb6cjypl2j4fa6ma07b20eta';
       
       const response = await fetch(webhookUrl, {
         method: 'POST',
